@@ -116,7 +116,8 @@ def main():
                     full_slip_data, dian_settings,
                     calculations=calculations,
                     worked_days=raw_data['worked_days'],
-                    overtime_hours=raw_data['manual_inputs'])
+                    overtime_hours=raw_data['manual_inputs'],
+                    attachments=raw_data.get('attachments', []))
 
                 pin = dian_settings.get('dian', {}).get(
                     'software_pin', '75315')

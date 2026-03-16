@@ -105,8 +105,7 @@
             Porcentaje="{{ Deducciones.Pension.Porcentaje }}"
             Deduccion="{{ Deducciones.Pension.Deduccion }}" /> {% for fsp in
         Deducciones.FondoSolidaridad %} <FondoSP Porcentaje="{{ fsp.Porcentaje }}"
-            DeduccionSP="{{ fsp.DeduccionSP }}" DeduccionSub="{{ fsp.DeduccionSub }}" /> {% endfor
-        %} </Deducciones>
+            DeduccionSP="{{ fsp.DeduccionSP }}" DeduccionSub="{{ fsp.DeduccionSub }}" /> {% endfor %} {% if Deducciones.OtrasDeducciones %} <OtrasDeducciones> {% for otra in Deducciones.OtrasDeducciones %} <OtraDeduccion>{{ otra.OtraDeduccion }}</OtraDeduccion> {% endfor %} </OtrasDeducciones> {% endif %} </Deducciones>
 
     <DevengadosTotal>{{ Totales.DevengadoTotal }}</DevengadosTotal>
     <DeduccionesTotal>{{ Totales.DeduccionesTotal }}</DeduccionesTotal>

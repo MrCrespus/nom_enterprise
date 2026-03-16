@@ -10,7 +10,7 @@ class PayrollRepository:
         slip = self.client.execute(
             'hr.payslip', 'read', [payslip_id],
             fields=['contract_id', 'worked_days_line_ids',
-                    'input_line_ids', 'number', 'employee_id']
+                    'input_line_ids', 'number', 'employee_id', 'date_to']
         )[0]
 
         contract = self.client.execute(
@@ -40,11 +40,28 @@ class PayrollRepository:
             clean_code = inp['code'].replace('_QTY', '')
             inputs_map[clean_code] = inp['amount']
 
+        # Fetch active attachments (deductions)
+        date_to = slip.get('date_to')
+        employee_id = slip['employee_id'][0] if slip.get('employee_id') else False
+        
+        attachments = []
+        if employee_id and date_to:
+            domain = [
+                ['employee_ids', 'in', [employee_id]],
+                ['state', '=', 'open'],
+                ['date_start', '<=', date_to]
+            ]
+            attachments = self.client.execute(
+                'hr.salary.attachment', 'search_read', domain,
+                fields=['description', 'monthly_amount', 'active_amount']
+            )
+
         return {
             'payslip_number': slip.get('number'),
             'contract': contract,
             'worked_days': worked_days_map,
-            'manual_inputs': inputs_map
+            'manual_inputs': inputs_map,
+            'attachments': attachments
         }
 
     def write_calculations(self, payslip_id, calculated_values):
@@ -97,6 +114,7 @@ class PayrollRepository:
             'EXT_RNOC': ['RNOC', 'REC_NOC'],
             'EXT_SALUD': ['SALUD'],
             'EXT_PENSION': ['PENSION'],
+            'EXT_ARL': ['ARL'],
             'EXT_FSP': ['FSP'],
         }
 
@@ -189,6 +207,7 @@ class PayrollRepository:
             'EXT_RNOC': 'Cálculo Recargo Nocturno API',
             'EXT_SALUD': 'Cálculo Salud API',
             'EXT_PENSION': 'Cálculo Pensión API',
+            'EXT_ARL': 'Cálculo ARL API',
             'EXT_FSP': 'Cálculo Fondo Solidaridad API',
         }
 

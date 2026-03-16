@@ -30,20 +30,17 @@ class ColombiaPayrollEngine:
         if total_days >= 30 and ibc < ColombiaPayrollEngine.SMMLV:
             ibc = ColombiaPayrollEngine.SMMLV
 
-        ratio = wage / ColombiaPayrollEngine.SMMLV
-        if ratio <= 1.0:
-            porc_salud = 0.04
-        elif ratio <= 3.0:
-            porc_salud = 0.10
-        else:
-            porc_salud = 0.12
-
+        porc_salud = 0.04
         deducción_salud = round(ibc * porc_salud, 2)
         deducción_pension = round(ibc * 0.04, 2)
 
         deduccion_fsp = 0
         if ibc > (ColombiaPayrollEngine.SMMLV * 4):
             deduccion_fsp = round(ibc * 0.01, 2)
+
+        # Default ARL (Riesgo Nivel I = 0.522%)
+        porc_arl = 0.00522
+        deduccion_arl = round(ibc * porc_arl, 2)
 
         return {
             'EXT_BASICO': round(pago_basico, 2),
@@ -53,5 +50,6 @@ class ColombiaPayrollEngine:
             'EXT_RNOC': round(pago_rnoc, 2),
             'EXT_SALUD': deducción_salud,
             'EXT_PENSION': deducción_pension,
+            'EXT_ARL': deduccion_arl,
             'EXT_FSP': deduccion_fsp,
         }

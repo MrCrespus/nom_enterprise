@@ -4,7 +4,7 @@ import datetime
 
 class DianMapper:
     @staticmethod
-    def to_dian_structure(data, dian_settings=None, calculations=None, worked_days=None, overtime_hours=None):
+    def to_dian_structure(data, dian_settings=None, calculations=None, worked_days=None, overtime_hours=None, attachments=None):
         slip = data['slip']
         contract = data['contract']
         employee = data['employee']
@@ -15,6 +15,7 @@ class DianMapper:
         calculations = calculations or {}
         worked_days = worked_days or {}
         overtime_hours = overtime_hours or {}
+        attachments = attachments or []
 
         now = datetime.datetime.now()
         fecha_gen = now.strftime("%Y-%m-%d")
@@ -30,6 +31,7 @@ class DianMapper:
         val_rnoc = calculations.get('EXT_RNOC', 0)
         val_salud = abs(calculations.get('EXT_SALUD', 0))
         val_pension = abs(calculations.get('EXT_PENSION', 0))
+        val_arl = abs(calculations.get('EXT_ARL', 0))
         val_fsp = abs(calculations.get('EXT_FSP', 0))
 
         horas_hed = float(overtime_hours.get('HED', 0))
@@ -78,7 +80,7 @@ class DianMapper:
 
         calc_total_devengado = round(
             sueldo_basico + val_transporte + val_hed + val_hen + val_rnoc, 2)
-        calc_total_deducciones = round(val_salud + val_pension + val_fsp, 2)
+        calc_total_deducciones = round(val_salud + val_pension + val_arl + val_fsp, 2)
 
         # Calcular porcentajes internamente para no crear campos en Odoo
         ratio = contract.get('wage', 0) / 1750905  # SMMLV 2026
@@ -92,13 +94,27 @@ class DianMapper:
         deducciones = {
             "Salud": {"Porcentaje": val_porc_salud, "Deduccion": val_salud},
             "Pension": {"Porcentaje": 4.0, "Deduccion": val_pension},
-            "FondoSolidaridad": []
+            "FondoSolidaridad": [],
+            "OtrasDeducciones": []
         }
 
         if val_fsp > 0:
             deducciones["FondoSolidaridad"].append({
                 "DeduccionSP": val_fsp, "DeduccionSub": 0, "Porcentaje": 1.0
             })
+            
+        if val_arl > 0:
+            deducciones["OtrasDeducciones"].append({
+                "OtraDeduccion": val_arl
+            })
+
+        for att in attachments:
+            amt = att.get('active_amount') or att.get('monthly_amount', 0)
+            if amt > 0:
+                deducciones["OtrasDeducciones"].append({
+                    "OtraDeduccion": amt
+                })
+                calc_total_deducciones += amt
 
         return {
             "Novedad": {"CUNENovedad": "false"},
