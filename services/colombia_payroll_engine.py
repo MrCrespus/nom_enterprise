@@ -1,14 +1,14 @@
 class ColombiaPayrollEngine:
     SMMLV = 1750905
-    AUX_TRANSPORTE = 200000
+    AUX_TRANSPORTE = 249095
     UVT = 53000
 
     @staticmethod
     def calculate_payroll(contract, worked_days_data, overtime_hours):
         wage = contract.get('wage', 0)
-        days_worked = float(worked_days_data.get('WORK100', 0))
-
-        total_days = sum(float(x) for x in worked_days_data.values())
+        # Forzar siempre a 30 días para todos los cálculos según requerimiento
+        days_worked = 30
+        total_days = 30
 
         pago_basico = (wage / 30) * days_worked
 
@@ -30,14 +30,28 @@ class ColombiaPayrollEngine:
         if total_days >= 30 and ibc < ColombiaPayrollEngine.SMMLV:
             ibc = ColombiaPayrollEngine.SMMLV
 
-        deduccion_salud = ibc * 0.04
-        deduccion_pension = ibc * 0.04
+        ratio = wage / ColombiaPayrollEngine.SMMLV
+        if ratio <= 1.0:
+            porc_salud = 0.04
+        elif ratio <= 3.0:
+            porc_salud = 0.10
+        else:
+            porc_salud = 0.12
+
+        deducción_salud = round(ibc * porc_salud, 2)
+        deducción_pension = round(ibc * 0.04, 2)
+
+        deduccion_fsp = 0
+        if ibc > (ColombiaPayrollEngine.SMMLV * 4):
+            deduccion_fsp = round(ibc * 0.01, 2)
 
         return {
             'EXT_BASICO': round(pago_basico, 2),
             'EXT_TRANS': round(pago_transporte, 2),
             'EXT_HED': round(pago_hed, 2),
             'EXT_HEN': round(pago_hen, 2),
-            'EXT_SALUD': round(deduccion_salud, 2),
-            'EXT_PENSION': round(deduccion_pension, 2)
+            'EXT_RNOC': round(pago_rnoc, 2),
+            'EXT_SALUD': deducción_salud,
+            'EXT_PENSION': deducción_pension,
+            'EXT_FSP': deduccion_fsp,
         }

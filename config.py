@@ -26,12 +26,14 @@ class Config:
         'HEFD': 'HEDDF',
         'HEFN': 'HENDF',
         'REC_NOC': 'HRN',
+        'EXT_RNOC': 'HRN',
 
         'SALUD': 'Salud',
         'SS_SALUD': 'Salud',
         'PENSION': 'Pension',
         'SS_PENSION': 'Pension',
-        'FSP': 'FondoSolidaridad'
+        'FSP': 'FondoSolidaridad',
+        'EXT_FSP': 'FondoSolidaridad'
     }
 
     PORCENTAJES_EXTRA = {

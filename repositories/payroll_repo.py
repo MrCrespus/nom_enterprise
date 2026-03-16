@@ -89,6 +89,36 @@ class PayrollRepository:
 
         self.client.execute('hr.payslip', 'compute_sheet', [payslip_id])
 
+        x_input_to_rule = {
+            'EXT_BASICO': ['BASIC', 'SUELDO'],
+            'EXT_TRANS': ['AUX_TRANS'],
+            'EXT_HED': ['HED'],
+            'EXT_HEN': ['HEN'],
+            'EXT_RNOC': ['RNOC', 'REC_NOC'],
+            'EXT_SALUD': ['SALUD'],
+            'EXT_PENSION': ['PENSION'],
+            'EXT_FSP': ['FSP'],
+        }
+
+        payslip_lines = self.client.execute(
+            'hr.payslip.line', 'search_read',
+            [['slip_id', '=', payslip_id]],
+            fields=['id', 'code']
+        )
+        line_code_map = {ln['code']: ln['id'] for ln in payslip_lines}
+
+        for ext_code, amount in calculated_values.items():
+            rule_codes = x_input_to_rule.get(ext_code, [])
+            for rule_code in rule_codes:
+                if rule_code in line_code_map:
+                    self.client.execute(
+                        'hr.payslip.line', 'write',
+                        [line_code_map[rule_code]],
+                        {'amount': abs(amount)}
+                    )
+                    print(f"      [Repo] Regla '{rule_code}' actualizada con {amount}.")
+                    break
+
     def get_draft_payslips(self):
         return self.client.execute(
             'hr.payslip', 'search',
@@ -156,8 +186,10 @@ class PayrollRepository:
             'EXT_TRANS': 'Cálculo Transporte API',
             'EXT_HED': 'Cálculo HED API',
             'EXT_HEN': 'Cálculo HEN API',
+            'EXT_RNOC': 'Cálculo Recargo Nocturno API',
             'EXT_SALUD': 'Cálculo Salud API',
             'EXT_PENSION': 'Cálculo Pensión API',
+            'EXT_FSP': 'Cálculo Fondo Solidaridad API',
         }
 
         all_codes = list(x_input_definitions.keys())
@@ -402,6 +434,13 @@ class PayrollRepository:
             'mimetype': 'application/xml',
         }
         try:
+            # Buscar folder HR para organizar documentos
+            hr_folder = self.client.execute('documents.document', 'search', [
+                ['name', '=', 'HR'], ['type', '=', 'folder']
+            ], limit=1)
+            if hr_folder:
+                doc_vals['folder_id'] = hr_folder[0]
+
             # Buscar si ya existe en documents
             existing_docs = self.client.execute(
                 'documents.document', 'search',

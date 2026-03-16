@@ -8,8 +8,8 @@ from services.dian_mapper import DianMapper
 from services.xml_generator import XMLGenerator
 from services.cune_calculator import CuneCalculator
 
-FECHA_INICIO = '2026-01-01'
-FECHA_FIN = '2026-12-31'
+FECHA_INICIO = '2026-03-01'
+FECHA_FIN = '2026-03-31'
 
 
 def parse_args():
@@ -84,6 +84,9 @@ def main():
             print("    No hay nóminas pendientes.")
             return
 
+        # Solo procesar la última (id más alto)
+        draft_ids = draft_ids[-1:]
+
         for slip_id in draft_ids:
             try:
                 print(f"\n    > Procesando ID {slip_id}...")
@@ -106,14 +109,14 @@ def main():
 
                 full_slip_data = repo.get_full_data_for_xml(slip_id)
 
-                full_slip_data = repo.get_full_data_for_xml(slip_id)
-
-                # Fetch DIAN Config for the company of this payslip
                 company_id = full_slip_data['slip']['company_id'][0]
                 dian_settings = repo.get_dian_configuration(company_id)
 
                 dian_json = DianMapper.to_dian_structure(
-                    full_slip_data, dian_settings)
+                    full_slip_data, dian_settings,
+                    calculations=calculations,
+                    worked_days=raw_data['worked_days'],
+                    overtime_hours=raw_data['manual_inputs'])
 
                 pin = dian_settings.get('dian', {}).get(
                     'software_pin', '75315')

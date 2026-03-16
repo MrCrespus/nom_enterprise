@@ -4,80 +4,101 @@ import datetime
 
 class DianMapper:
     @staticmethod
-    def to_dian_structure(data, dian_settings=None):
+    def to_dian_structure(data, dian_settings=None, calculations=None, worked_days=None, overtime_hours=None):
         slip = data['slip']
-        lines = data['lines']
         contract = data['contract']
         employee = data['employee']
         company = data['company']
 
-        # Use provided settings or fallback to empty dict
         dian_settings = dian_settings or {}
         dian_config = dian_settings.get('dian', {})
+        calculations = calculations or {}
+        worked_days = worked_days or {}
+        overtime_hours = overtime_hours or {}
 
         now = datetime.datetime.now()
         fecha_gen = now.strftime("%Y-%m-%d")
         hora_gen = now.strftime("%H:%M:%S")
 
+        # Forzar siempre a 30 días para el reporte DIAN
+        dias_trabajados = 30
+
+        sueldo_basico = calculations.get('EXT_BASICO', 0)
+        val_transporte = calculations.get('EXT_TRANS', 0)
+        val_hed = calculations.get('EXT_HED', 0)
+        val_hen = calculations.get('EXT_HEN', 0)
+        val_rnoc = calculations.get('EXT_RNOC', 0)
+        val_salud = abs(calculations.get('EXT_SALUD', 0))
+        val_pension = abs(calculations.get('EXT_PENSION', 0))
+        val_fsp = abs(calculations.get('EXT_FSP', 0))
+
+        horas_hed = float(overtime_hours.get('HED', 0))
+        horas_hen = float(overtime_hours.get('HEN', 0))
+        horas_rnoc = float(overtime_hours.get('RNOC', 0))
+
         devengados = {
-            "Basico": {"DiasTrabajados": 30, "SueldoTrabajado": 0},
+            "Basico": {"DiasTrabajados": dias_trabajados, "SueldoTrabajado": sueldo_basico},
             "Transporte": [],
             "HEDs": [], "HENs": [], "HRNs": [], "HEDDFs": [], "HENDFs": []
         }
 
+        total_devengado = sueldo_basico
+
+        if val_transporte > 0:
+            devengados["Transporte"].append(
+                {"AuxilioTransporte": val_transporte, "ViaticoManutAlojS": 0})
+            total_devengado += val_transporte
+
+        if val_hed > 0:
+            devengados["HEDs"].append({
+                "HoraInicio": None, "HoraFin": None,
+                "Cantidad": horas_hed,
+                "Porcentaje": Config.PORCENTAJES_EXTRA.get('HED', 25.0),
+                "Pago": val_hed
+            })
+            total_devengado += val_hed
+
+        if val_hen > 0:
+            devengados["HENs"].append({
+                "HoraInicio": None, "HoraFin": None,
+                "Cantidad": horas_hen,
+                "Porcentaje": Config.PORCENTAJES_EXTRA.get('HEN', 75.0),
+                "Pago": val_hen
+            })
+            total_devengado += val_hen
+
+        if val_rnoc > 0:
+            devengados["HRNs"].append({
+                "HoraInicio": None, "HoraFin": None,
+                "Cantidad": horas_rnoc,
+                "Porcentaje": Config.PORCENTAJES_EXTRA.get('HRN', 35.0),
+                "Pago": val_rnoc
+            })
+            total_devengado += val_rnoc
+
+        calc_total_devengado = round(
+            sueldo_basico + val_transporte + val_hed + val_hen + val_rnoc, 2)
+        calc_total_deducciones = round(val_salud + val_pension + val_fsp, 2)
+
+        # Calcular porcentajes internamente para no crear campos en Odoo
+        ratio = contract.get('wage', 0) / 1750905  # SMMLV 2026
+        if ratio <= 1.0:
+            val_porc_salud = 4.0
+        elif ratio <= 3.0:
+            val_porc_salud = 10.0
+        else:
+            val_porc_salud = 12.0
+
         deducciones = {
-            "Salud": {"Porcentaje": 4.0, "Deduccion": 0},
-            "Pension": {"Porcentaje": 4.0, "Deduccion": 0},
+            "Salud": {"Porcentaje": val_porc_salud, "Deduccion": val_salud},
+            "Pension": {"Porcentaje": 4.0, "Deduccion": val_pension},
             "FondoSolidaridad": []
         }
 
-        total_devengado = 0
-        total_deducciones = 0
-
-        for line in lines:
-            odoo_code = line['code']
-            valor = line['total']
-
-            dian_type = Config.CONCEPTO_MAP.get(odoo_code)
-            if not dian_type:
-                continue
-
-            if dian_type == 'Basico':
-                dias = line.get('quantity', 30)
-                devengados["Basico"]["DiasTrabajados"] = int(
-                    dias) if dias > 0 else 30
-                devengados["Basico"]["SueldoTrabajado"] += valor
-                total_devengado += valor
-
-            elif dian_type == 'Transporte':
-                devengados["Transporte"].append(
-                    {"AuxilioTransporte": valor, "ViaticoManutAlojS": 0})
-                total_devengado += valor
-
-            elif dian_type in ['HED', 'HEN', 'HRN', 'HEDDF', 'HENDF']:
-                porcentaje = Config.PORCENTAJES_EXTRA.get(dian_type, 0.0)
-                horas = line.get('quantity', 0)
-
-                key_plural = dian_type + "s"
-                devengados[key_plural].append({
-                    "HoraInicio": None, "HoraFin": None,
-                    "Cantidad": horas, "Porcentaje": porcentaje, "Pago": valor
-                })
-                total_devengado += valor
-
-            elif dian_type == 'Salud':
-                deducciones["Salud"]["Deduccion"] += abs(valor)
-                total_deducciones += abs(valor)
-
-            elif dian_type == 'Pension':
-                deducciones["Pension"]["Deduccion"] += abs(valor)
-                total_deducciones += abs(valor)
-
-            elif dian_type == 'FondoSolidaridad':
-                deducciones["FondoSolidaridad"].append({
-                    "DeduccionSP": abs(valor), "DeduccionSub": 0, "Porcentaje": 1.0
-                })
-                total_deducciones += abs(valor)
+        if val_fsp > 0:
+            deducciones["FondoSolidaridad"].append({
+                "DeduccionSP": val_fsp, "DeduccionSub": 0, "Porcentaje": 1.0
+            })
 
         return {
             "Novedad": {"CUNENovedad": "false"},
@@ -85,7 +106,7 @@ class DianMapper:
                 "FechaIngreso": contract.get('date_start'),
                 "FechaLiquidacionInicio": slip['date_from'],
                 "FechaLiquidacionFin": slip['date_to'],
-                "TiempoLaborado": devengados["Basico"]["DiasTrabajados"],
+                "TiempoLaborado": dias_trabajados,
                 "FechaGen": fecha_gen
             },
             "NumeroSecuenciaXML": {
@@ -100,7 +121,6 @@ class DianMapper:
                 "Idioma": "es"
             },
             "ProveedorXML": {
-                # Self-provider logic implies Company is Provider
                 "RazonSocial": company.get('name', ''),
                 "PrimerApellido": "",
                 "PrimerNombre": "",
@@ -111,7 +131,6 @@ class DianMapper:
             },
             "InformacionGeneral": {
                 "Version": "V1.0: Documento Soporte de Pago de Nómina Electrónica",
-                # 2=Test, 1=Production
                 "Ambiente": "2" if dian_config.get('testing_id') else "1",
                 "TipoXML": "102",
                 "CUNE": "",
@@ -154,9 +173,9 @@ class DianMapper:
             "Devengados": devengados,
             "Deducciones": deducciones,
             "Totales": {
-                "DevengadoTotal": total_devengado,
-                "DeduccionesTotal": total_deducciones,
-                "TotalAPagar": total_devengado - total_deducciones,
-                "ComprobanteTotal": total_devengado - total_deducciones
+                "DevengadoTotal": calc_total_devengado,
+                "DeduccionesTotal": calc_total_deducciones,
+                "TotalAPagar": round(calc_total_devengado - calc_total_deducciones, 2),
+                "ComprobanteTotal": round(calc_total_devengado - calc_total_deducciones, 2)
             }
         }
