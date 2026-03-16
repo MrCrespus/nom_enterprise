@@ -10,7 +10,6 @@ from services.cune_calculator import CuneCalculator
 
 FECHA_INICIO = '2026-01-01'
 FECHA_FIN = '2026-12-31'
-NOMBRE_NOMINA = 'Nómina Enero 2026 (API)'
 
 
 def parse_args():
@@ -69,13 +68,9 @@ def main():
             emp_name = contract['employee_id'][1]
             contract_id = contract['id']
 
-            if repo.slip_exists(emp_id, FECHA_INICIO, FECHA_FIN):
-                print(f"    - Saltando a {emp_name} (Ya tiene nómina).")
-                continue
-
             print(f"    + Creando nómina para: {emp_name}...")
             repo.create_payslip(contract_id, emp_id,
-                                FECHA_INICIO, FECHA_FIN, NOMBRE_NOMINA)
+                                FECHA_INICIO, FECHA_FIN)
             created_count += 1
 
         print(
@@ -92,6 +87,9 @@ def main():
         for slip_id in draft_ids:
             try:
                 print(f"\n    > Procesando ID {slip_id}...")
+
+                # Recompute to trigger standard name/number generation if needed
+                repo.client.execute('hr.payslip', 'compute_sheet', [slip_id])
 
                 raw_data = repo.get_payslip_raw_data(slip_id)
 
@@ -171,16 +169,18 @@ def main():
                     print(f"      ❌ ERROR CRÍTICO al firmar XML: {e}")
 
                 numero_nomina = dian_json['NumeroSecuenciaXML']['Numero']
-                filename = f"nie_{numero_nomina}.xml"
+                odoo_filename = f"{numero_nomina}.xml"
+                safe_numero = str(numero_nomina).replace(
+                    '/', '_').replace('\\', '_')
+                local_filename = f"{safe_numero}.xml"
 
-                output_folder = r"d:\Codyd\api18\documents"
                 file_path = xml_gen.save_to_file(
-                    xml_str, filename, output_dir=output_folder)
+                    xml_str, local_filename)
 
-                print(f"      📄 XML Creado exitosamente: {file_path}")
+                print(f"      📄 XML Creado localmente: {file_path}")
 
                 try:
-                    repo.x_upload_xml_to_odoo(slip_id, filename, xml_str)
+                    repo.x_upload_xml_to_odoo(slip_id, odoo_filename, xml_str)
                 except Exception as upload_err:
                     print(
                         f"      ❌ ERROR al retornar XML a Odoo: {upload_err}")

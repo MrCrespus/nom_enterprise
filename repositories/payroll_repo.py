@@ -67,8 +67,25 @@ class PayrollRepository:
                     {'amount': amount}
                 )
             else:
-                print(
-                    f"      ⚠️ ADVERTENCIA: El input '{code}' no existe en la nómina {payslip_id}. Revisa la configuración en Odoo.")
+                input_type_ids = self.client.execute(
+                    'hr.payslip.input.type', 'search',
+                    [['code', '=', code]],
+                    limit=1
+                )
+                if input_type_ids:
+                    new_vals = {
+                        'payslip_id': payslip_id,
+                        'input_type_id': input_type_ids[0],
+                        'amount': amount,
+                    }
+                    self.client.execute(
+                        'hr.payslip.input', 'create', [new_vals]
+                    )
+                    print(
+                        f"      [Repo] Input '{code}' creado en nómina {payslip_id}.")
+                else:
+                    print(
+                        f"      ⚠️ ADVERTENCIA: El tipo de entrada '{code}' no existe en Odoo. Créalo en Configuración → Tipos de otras entradas.")
 
         self.client.execute('hr.payslip', 'compute_sheet', [payslip_id])
 
@@ -102,16 +119,21 @@ class PayrollRepository:
         )
         return count > 0
 
-    def create_payslip(self, contract_id, employee_id, date_from, date_to, name):
+    def create_payslip(self, contract_id, employee_id, date_from, date_to):
         print(
             f"      [Repo] Creando borrador para Empleado ID {employee_id}...")
+
+        emp_data = self.client.execute(
+            'hr.employee', 'read', [employee_id], fields=['name']
+        )[0]
+        x_slip_name = f"Nómina {emp_data['name']} ({date_from} - {date_to})"
 
         vals = {
             'employee_id': employee_id,
             'contract_id': contract_id,
             'date_from': date_from,
             'date_to': date_to,
-            'name': name
+            'name': x_slip_name,
         }
 
         slip_id = self.client.execute('hr.payslip', 'create', [vals])
@@ -126,15 +148,53 @@ class PayrollRepository:
         except Exception as e:
             print(f"      [Repo] Advertencia leve en compute_sheet: {e}")
 
-        try:
-            self.client.execute(
-                'hr.payslip',
-                'write',
-                [slip_id],
-                {'number': name}
-            )
-        except Exception as e:
-            print(f"      ❌ Error al actualizar campo 'number': {e}")
+        x_input_definitions = {
+            'HED_QTY': 'Horas Extras Diurnas',
+            'HEN_QTY': 'Horas Extras Nocturnas',
+            'RNOC_QTY': 'Recargo Nocturno',
+            'EXT_BASICO': 'Cálculo Básico API',
+            'EXT_TRANS': 'Cálculo Transporte API',
+            'EXT_HED': 'Cálculo HED API',
+            'EXT_HEN': 'Cálculo HEN API',
+            'EXT_SALUD': 'Cálculo Salud API',
+            'EXT_PENSION': 'Cálculo Pensión API',
+        }
+
+        all_codes = list(x_input_definitions.keys())
+        existing_types = self.client.execute(
+            'hr.payslip.input.type', 'search_read',
+            [['code', 'in', all_codes]],
+            fields=['id', 'code']
+        )
+        type_map = {t['code']: t['id'] for t in existing_types}
+
+        for code, name in x_input_definitions.items():
+            if code not in type_map:
+                new_type_id = self.client.execute(
+                    'hr.payslip.input.type', 'create',
+                    [{'name': name, 'code': code}]
+                )
+                if isinstance(new_type_id, list):
+                    new_type_id = new_type_id[0]
+                type_map[code] = new_type_id
+                print(f"      [Repo] Tipo de entrada '{code}' creado en Odoo.")
+
+        existing_inputs = self.client.execute(
+            'hr.payslip.input', 'search_read',
+            [['payslip_id', '=', slip_id]],
+            fields=['code']
+        )
+        existing_codes = {inp['code'] for inp in existing_inputs}
+
+        for code in all_codes:
+            if code not in existing_codes:
+                self.client.execute(
+                    'hr.payslip.input', 'create',
+                    [{'payslip_id': slip_id,
+                      'input_type_id': type_map[code],
+                      'amount': 0}]
+                )
+                print(f"      [Repo] Input '{code}' asociado a nómina {slip_id}.")
 
         return slip_id
 
@@ -183,8 +243,8 @@ class PayrollRepository:
             parts = nit.split('-')
             nit = parts[0]
             dv = parts[1]
-        elif nit:
-            # Fallback: Last digit is DV
+        elif nit and len(nit) > 1:
+            # Fallback: Last digit is assumed to be DV if it's RUT and no hyphen is provided
             dv = nit[-1]
             nit = nit[:-1]
 
@@ -342,19 +402,50 @@ class PayrollRepository:
             'mimetype': 'application/xml',
         }
         try:
-            doc_id = self.client.execute(
-                'documents.document', 'create', [doc_vals])
-            if isinstance(doc_id, list) and len(doc_id) > 0:
-                doc_id = doc_id[0]
-            print(f"      [Repo] XML retornado a Odoo documents, ID: {doc_id}")
-            return doc_id
+            # Buscar si ya existe en documents
+            existing_docs = self.client.execute(
+                'documents.document', 'search',
+                [['res_model', '=', 'hr.payslip'], [
+                    'res_id', '=', payslip_id], ['name', '=', filename]]
+            )
+
+            if existing_docs:
+                doc_id = existing_docs[0]
+                self.client.execute('documents.document', 'write', [
+                                    doc_id], {'datas': encoded_xml})
+                print(
+                    f"      [Repo] XML actualizado en Odoo documents, ID: {doc_id}")
+                return doc_id
+            else:
+                doc_id = self.client.execute(
+                    'documents.document', 'create', [doc_vals])
+                if isinstance(doc_id, list) and len(doc_id) > 0:
+                    doc_id = doc_id[0]
+                print(
+                    f"      [Repo] XML retornado a Odoo documents, ID: {doc_id}")
+                return doc_id
         except Exception as e:
             print(
                 f"      ⚠️ Error documents.document: {e}. Usando ir.attachment...")
-            attachment_id = self.client.execute(
-                'ir.attachment', 'create', [doc_vals])
-            if isinstance(attachment_id, list) and len(attachment_id) > 0:
-                attachment_id = attachment_id[0]
-            print(
-                f"      [Repo] XML retornado a Odoo, ID adjunto: {attachment_id}")
-            return attachment_id
+
+            existing_atts = self.client.execute(
+                'ir.attachment', 'search',
+                [['res_model', '=', 'hr.payslip'], [
+                    'res_id', '=', payslip_id], ['name', '=', filename]]
+            )
+
+            if existing_atts:
+                attachment_id = existing_atts[0]
+                self.client.execute('ir.attachment', 'write', [
+                                    attachment_id], {'datas': encoded_xml})
+                print(
+                    f"      [Repo] XML actualizado en Odoo adjuntos (ir.attachment), ID: {attachment_id}")
+                return attachment_id
+            else:
+                attachment_id = self.client.execute(
+                    'ir.attachment', 'create', [doc_vals])
+                if isinstance(attachment_id, list) and len(attachment_id) > 0:
+                    attachment_id = attachment_id[0]
+                print(
+                    f"      [Repo] XML retornado a Odoo adjuntos, ID adjunto: {attachment_id}")
+                return attachment_id

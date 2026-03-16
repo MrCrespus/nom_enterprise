@@ -89,8 +89,8 @@ class DianMapper:
                 "FechaGen": fecha_gen
             },
             "NumeroSecuenciaXML": {
-                "Consecutivo": slip['number'].split('-')[-1] if '-' in slip['number'] else slip['number'],
-                "Numero": slip['number'],
+                "Consecutivo": slip.get('number', ''),
+                "Numero": slip.get('number', ''),
                 "Prefijo": "NOM"
             },
             "LugarGeneracionXML": {
@@ -104,8 +104,8 @@ class DianMapper:
                 "RazonSocial": company.get('name', ''),
                 "PrimerApellido": "",
                 "PrimerNombre": "",
-                "NIT": company.get('vat', ''),
-                "DV": "1",  # Ideally calculate DV
+                "NIT": company.get('matches_nit', company.get('vat', '')),
+                "DV": company.get('matches_dv', "1"),
                 "SoftwareID": dian_config.get('software_id', ''),
                 "SoftwareSC": dian_config.get('software_pin', '')
             },
@@ -122,8 +122,8 @@ class DianMapper:
                 "TipoMoneda": "COP"
             },
             "Empleador": {
-                "NIT": company.get('vat'),
-                "DigitoVerificacion": "1",
+                "NIT": company.get('matches_nit', company.get('vat', '')),
+                "DigitoVerificacion": company.get('matches_dv', "1"),
                 "RazonSocial": company.get('name'),
                 "Pais": "CO",
                 "DepartamentoEstado": "17",
