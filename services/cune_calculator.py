@@ -1,31 +1,31 @@
 import hashlib
 
-
-class CuneCalculator:
+class x_CuneCalculator:
     @staticmethod
-    def calculate(data, pin_software="75315"):
+    def x_calculate(data, pin_software="75315"):
+        """
+        Calcula el CUNE (Código Único de Nómina Electrónica) según el estándar de la DIAN.
+        """
         try:
-            num_ne = str(data['NumeroSecuenciaXML']['Numero'])
-            fec_gen = str(data['Periodo']['FechaGen'])
-            hor_gen = str(data['InformacionGeneral']['HoraGen'])
-            val_dev = f"{data['Totales']['DevengadoTotal']:.2f}"
-            val_ded = f"{data['Totales']['DeduccionesTotal']:.2f}"
-            val_tol = f"{data['Totales']['TotalAPagar']:.2f}"
-            nit_ne = str(data['Empleador']['NIT'])
-            doc_emp = str(data['Trabajador']['Documento'])
+            numero_nomina = str(data['NumeroSecuenciaXML']['Numero'])
+            fecha_generacion = str(data['Periodo']['FechaGen'])
+            hora_generacion = str(data['InformacionGeneral']['HoraGen'])
+            valor_devengado = f"{data['Totales']['DevengadoTotal']:.2f}"
+            valor_deducido = f"{data['Totales']['DeduccionesTotal']:.2f}"
+            valor_total = f"{data['Totales']['TotalAPagar']:.2f}"
+            nit_empleador = str(data['Empleador']['NIT'])
+            documento_trabajador = str(data['Trabajador']['Documento'])
             tipo_xml = "102"
             ambiente = str(data['InformacionGeneral']['Ambiente'])
 
             cune_string = (
-                f"{num_ne}{fec_gen}{hor_gen}"
-                f"{val_dev}{val_ded}{val_tol}"
-                f"{nit_ne}{doc_emp}{tipo_xml}"
+                f"{numero_nomina}{fecha_generacion}{hora_generacion}"
+                f"{valor_devengado}{valor_deducido}{valor_total}"
+                f"{nit_empleador}{documento_trabajador}{tipo_xml}"
                 f"{pin_software}{ambiente}"
             )
 
-            cune_hash = hashlib.sha384(cune_string.encode('utf-8')).hexdigest()
-            return cune_hash
+            return hashlib.sha384(cune_string.encode('utf-8')).hexdigest()
 
         except KeyError as e:
-            print(f"Error calculando CUNE: Falta campo {e}")
-            return "ERROR_CUNE"
+            raise KeyError(f"Error al calcular CUNE: Falta campo requerido {e}")

@@ -40,12 +40,10 @@ class Config:
         'HED': 25.00,
         'HEN': 75.00,
         'HRN': 35.00,
+        'HED_DF': 100.00,
+        'HEN_DF': 150.00,
+        'RNOC_DF': 75.00,
         'HEDDF': 100.00,
-        'HENDF': 150.00
+        'HENDF': 150.00,
     }
 
-    PROVEEDOR_RAZON_SOCIAL = "CODYD SAS"
-    PROVEEDOR_NIT = "900000000"
-    PROVEEDOR_DV = "1"
-    PROVEEDOR_SOFTWARE_ID = "00000000-0000-0000-0000-000000000000"
-    PROVEEDOR_SOFTWARE_PIN = "75315"

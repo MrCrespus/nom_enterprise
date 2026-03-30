@@ -2,8 +2,7 @@ import xmlrpc.client
 import ssl
 from config import Config
 
-
-class OdooClient:
+class x_OdooClient:
     def __init__(self, url=None, db=None, username=None, password=None):
         self.url = url or Config.ODOO_URL
         self.db = db or Config.ODOO_DB
@@ -11,27 +10,21 @@ class OdooClient:
         self.password = password or Config.ODOO_PASSWORD
         self.uid = None
         self.models = None
-        self._connect()
+        self.x_connect()
 
-    def _connect(self):
-        try:
-            _create_unverified_https_context = ssl._create_unverified_context
-        except AttributeError:
-            pass
-        else:
-            ssl._create_default_https_context = _create_unverified_https_context
+    def x_connect(self):
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
 
-        common = xmlrpc.client.ServerProxy(f'{self.url}/xmlrpc/2/common')
-        self.uid = common.authenticate(
-            self.db, self.username, self.password, {})
-        self.models = xmlrpc.client.ServerProxy(f'{self.url}/xmlrpc/2/object')
+        common = xmlrpc.client.ServerProxy(f'{self.url}/xmlrpc/2/common', context=context)
+        self.uid = common.authenticate(self.db, self.username, self.password, {})
+        self.models = xmlrpc.client.ServerProxy(f'{self.url}/xmlrpc/2/object', context=context)
 
         if not self.uid:
-            raise Exception(
-                "Error de autenticación: Verifica tus credenciales.")
-        print(f"Conectado a Odoo (UID: {self.uid})")
+            raise Exception("Error de autenticación: Verifica tus credenciales.")
 
-    def execute(self, model, method, *args, **kwargs):
+    def x_execute(self, model, method, *args, **kwargs):
         return self.models.execute_kw(
             self.db, self.uid, self.password,
             model, method, list(args), kwargs
