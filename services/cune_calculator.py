@@ -14,7 +14,7 @@ class x_CuneCalculator:
             valor_deducido = f"{data['Totales']['DeduccionesTotal']:.2f}"
             valor_total = f"{data['Totales']['TotalAPagar']:.2f}"
             nit_empleador = str(data['Empleador']['NIT'])
-            documento_trabajador = str(data['Trabajador']['Documento'])
+            documento_trabajador = str(data['Trabajador']['NumeroDocumento'])
             tipo_xml = "102"
             ambiente = str(data['InformacionGeneral']['Ambiente'])
 

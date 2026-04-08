@@ -1,6 +1,6 @@
 from config import Config
 import datetime
-
+import hashlib
 
 class x_DianMapper:
     @classmethod
@@ -11,154 +11,129 @@ class x_DianMapper:
         company = data['company']
 
         dian_settings = dian_settings or {}
-        calculations = calculations or {}
         overtime_hours = overtime_hours or {}
         attachments = attachments or []
 
-        # 1. Preparar Devengados
-        devengados, total_devengado = cls._x_map_devengados(calculations, overtime_hours)
+        if not calculations:
+            calculations = cls._x_extract_calculations_from_lines(data.get('lines', []))
         
-        # 2. Preparar Deducciones base
+        calculations = calculations or {}
+        worked_days = data.get('worked_days', {})
+
+        devengados, total_devengado = cls._x_map_devengados(calculations, overtime_hours, worked_days)
         deducciones, total_deducciones = cls._x_map_deducciones(calculations, contract)
         
-        # 3. Procesar Adjuntos (Earnings and Deductions)
         devengados, deducciones, total_devengado, total_deducciones = cls._x_process_attachments(
             attachments, devengados, deducciones, total_devengado, total_deducciones
         )
 
-        # 4. Ensamblar Estructura Final
         return cls._x_assemble_final_dict(
             data, dian_settings, devengados, deducciones, 
             total_devengado, total_deducciones
         )
 
     @classmethod
-    def _x_map_devengados(cls, calculations, overtime_hours):
-        sueldo_basico = calculations.get('EXT_BASICO', 0)
+    def _x_map_devengados(cls, calculations, overtime_hours, worked_days):
+        sueldo_basico = calculations.get('BASIC', 0)
+        
+        # Filtramos ausencias que afectan el básico según la guía (LEAVE100, LEAVE90, LEAVE110, LEAVE120, OUT)
+        dias_ausente = sum(float(worked_days.get(code, {}).get('number_of_days', 0) or 0) for code in ['LEAVE100', 'LEAVE90', 'LEAVE110', 'LEAVE120', 'OUT'])
+        dias_basico = max(30 - int(dias_ausente), 0)
+
         devengados = {
-            "Basico": {"DiasTrabajados": 30, "SueldoTrabajado": sueldo_basico},
+            "Basico": {"DiasTrabajados": dias_basico, "SueldoTrabajado": sueldo_basico},
             "Transporte": [],
             "HEDs": [], "HENs": [], "HRNs": [],
-            "HEDDFs": [], "HENDFs": [], "HRNDFs": [],
-            "Vacaciones": [], "Primas": [], "Cesantias": [],
-            "Incapacidades": [], "Licencias": [], "Bonificaciones": [],
-            "Auxilios": [], "OtrosConceptos": [], "Comisiones": [],
-            "Dotacion": [], "ApoyoSost": [], "Reintegros": [],
+            "HEDDFs": [], "HRDDFs": [], "HENDFs": [], "HRNDFs": [],
+            "Vacaciones": {"VacacionesComunes": [], "VacacionesCompensadas": []},
+            "Incapacidades": [],
+            "Bonificaciones": [], "OtrosConceptos": [], "Comisiones": []
         }
         total = sueldo_basico
 
-        # Transporte
-        val_trans = calculations.get('EXT_TRANS', 0)
-        if val_trans > 0:
-            devengados["Transporte"].append({"AuxilioTransporte": val_trans, "ViaticoManutAlojS": 0})
-            total += val_trans
+        if calculations.get('AUX_TRANS', 0) > 0:
+            devengados["Transporte"].append({"AuxilioTransporte": calculations['AUX_TRANS']})
+            total += calculations['AUX_TRANS']
 
-        # Horas Extra
-        total += cls._x_add_overtime_sections(devengados, calculations, overtime_hours)
-        
-        # Otros Devengos (Vacaciones, Primas, etc.)
-        total += cls._x_add_additional_earnings(devengados, calculations)
+        total += cls._x_add_overtime_sections(devengados, calculations, overtime_hours, worked_days)
+        total += cls._x_add_additional_earnings(devengados, calculations, worked_days)
 
         return devengados, total
 
     @classmethod
-    def _x_add_overtime_sections(cls, devengados, calculations, overtime_hours):
+    def _x_add_overtime_sections(cls, devengados, calculations, overtime_hours, worked_days):
         sections = {
             'HED': ('HEDs', 'Pago', 25.0),
             'HEN': ('HENs', 'Pago', 75.0),
-            'RNOC': ('HRNs', 'Pago', 35.0),
-            'HED_DF': ('HEDDFs', 'Pago', 100.0),
-            'HEN_DF': ('HENDFs', 'Pago', 150.0),
-            'RNOC_DF': ('HRNDFs', 'Pago', 75.0)
+            'RN': ('HRNs', 'Pago', 35.0),
+            'HEDD': ('HEDDFs', 'Pago', 100.0),
+            'HEND': ('HENDFs', 'Pago', 150.0),
+            'RDF': ('HRDDFs', 'Pago', 75.0), # Fixed to HRDDFs based on XSD typical structures. Wait, RDF is Recargo Dominical Festivo (HRDDFs = Hora Recargo Diurno Dominical Festivo).
+            'RNDF': ('HRNDFs', 'Pago', 110.0) 
         }
         subtotal = 0.0
         for code, (key, value_key, default_pct) in sections.items():
-            val = calculations.get(f'EXT_{code}', 0)
-            if val > 0:
-                hours = float(overtime_hours.get(code, 0))
-                devengados[key].append({
-                    "HoraInicio": None, "HoraFin": None,
-                    "Cantidad": hours,
-                    "Porcentaje": Config.PORCENTAJES_EXTRA.get(code, default_pct),
-                    value_key: val
-                })
-                subtotal += val
-        return subtotal
-
-    @classmethod
-    def _x_add_additional_earnings(cls, devengados, calculations):
-        subtotal = 0.0
-        # Simplificando para brevedad del refactor, se mantiene la lógica original
-        mappings = [
-            ('EXT_PRIMA', 'Primas', lambda v: {"Cantidad": 30, "Pago": v, "PagoNS": 0}),
-            ('EXT_CESANTIAS', 'Cesantias', lambda v: {"Pago": v, "PagoNS": 0, "Porcentaje": 12.0, "InteresesCesantias": calculations.get('EXT_INT_CES') or None}),
-            ('EXT_DOTACION', 'Dotacion', lambda v: {"Dotacion": v}),
-            ('EXT_COMISION', 'Comisiones', lambda v: {"Comision": v}),
-            ('EXT_APOYO_SOST', 'ApoyoSost', lambda v: {"ApoyoSost": v}),
-        ]
-        
-        for ext_key, section_key, formatter in mappings:
-            val = calculations.get(ext_key, 0)
-            if val > 0:
-                devengados[section_key].append(formatter(val))
-                subtotal += val
-                if ext_key == 'EXT_CESANTIAS':
-                    subtotal += calculations.get('EXT_INT_CES', 0)
-
-        # Vacaciones, Incapacidades, Licencias (Especiales)
-        subtotal += cls._x_add_special_earnings(devengados, calculations)
-        return subtotal
-
-    @classmethod
-    def _x_add_special_earnings(cls, devengados, calculations):
-        subtotal = 0.0
-        # Vacaciones
-        if calculations.get('EXT_VAC_COM', 0) > 0:
-            devengados["Vacaciones"].append({"tipo": "comunes", "Cantidad": int(calculations.get('EXT_VAC_COM_DIAS', 0)), "Pago": calculations['EXT_VAC_COM']})
-            subtotal += calculations['EXT_VAC_COM']
-        
-        # Bonificaciones, Auxilios, Otros (Salarial/No Salarial)
-        for prefix, key in [('EXT_BONIF', 'Bonificaciones'), ('EXT_AUX', 'Auxilios'), ('EXT_OTRO', 'OtrosConceptos')]:
-            for suffix, label in [('_SAL', 'salarial'), ('_NSAL', 'no_salarial')]:
-                val = calculations.get(f'{prefix}{suffix}', 0)
+            if code in calculations:
+                val = calculations.get(code, 0)
                 if val > 0:
-                    if key == 'OtrosConceptos':
-                        devengados[key].append({"tipo": label, "DescripcionConcepto": f"Otro concepto {label}", "ConceptoS": val if suffix == '_SAL' else 0, "ConceptoNS": val if suffix == '_NSAL' else 0})
-                    else:
-                        devengados[key].append({"tipo": label, f"{key[:-2]}on{label.replace('no_', 'No').capitalize()}": val})
+                    inpt = overtime_hours.get(code, {})
+                    wd = worked_days.get(code, {})
+                    hours = float(inpt.get('amount', 0) or wd.get('number_of_hours', 0) or wd.get('number_of_days', 0) or 0)
+                    
+                    devengados[key].append({
+                        "Cantidad": hours,
+                        "Porcentaje": Config.PORCENTAJES_EXTRA.get(code, default_pct),
+                        value_key: val
+                    })
                     subtotal += val
         return subtotal
 
     @classmethod
-    def _x_map_deducciones(cls, calculations, contract):
-        val_salud = abs(calculations.get('EXT_SALUD', 0))
-        val_pension = abs(calculations.get('EXT_PENSION', 0))
+    def _x_add_additional_earnings(cls, devengados, calculations, worked_days):
+        subtotal = 0.0
         
-        wage = contract.get('wage', 0)
-        ratio = wage / 1750905
-        porc_salud = 4.0 if ratio <= 1.0 else (10.0 if ratio <= 3.0 else 12.0)
+        if 'COMIS' in calculations and calculations['COMIS'] > 0:
+            devengados['Comisiones'].append({"Comision": calculations['COMIS']})
+            subtotal += calculations['COMIS']
+
+        if 'LEAVE120' in calculations and calculations['LEAVE120'] > 0:
+            dias_vac = int(worked_days.get('LEAVE120', {}).get('number_of_days', 15) or 15)
+            devengados["Vacaciones"]["VacacionesComunes"].append({"Cantidad": dias_vac, "Pago": calculations['LEAVE120']})
+            subtotal += calculations['LEAVE120']
+
+        if 'LEAVE110' in calculations and calculations['LEAVE110'] > 0:
+            dias_incap = int(worked_days.get('LEAVE110', {}).get('number_of_days', 0) or 0)
+            devengados["Incapacidades"].append({"Cantidad": dias_incap, "Pago": calculations['LEAVE110'], "Tipo": "1"})
+            subtotal += calculations['LEAVE110']
+
+        if 'REIMBURSEMENT' in calculations and calculations['REIMBURSEMENT'] > 0:
+            devengados["OtrosConceptos"].append({"DescripcionConcepto": "Reembolso", "ConceptoNS": calculations['REIMBURSEMENT']})
+            subtotal += calculations['REIMBURSEMENT']
+
+        return subtotal
+
+    @classmethod
+    def _x_map_deducciones(cls, calculations, contract):
+        val_salud = abs(calculations.get('SALUD', 0))
+        val_pension = abs(calculations.get('EMP_PENSION', 0))
 
         deducciones = {
-            "Salud": {"Porcentaje": porc_salud, "Deduccion": val_salud},
+            "Salud": {"Porcentaje": 4.0, "Deduccion": val_salud},
             "Pension": {"Porcentaje": 4.0, "Deduccion": val_pension},
             "FondoSolidaridad": [], "RetencionFuente": [], "PensionVoluntaria": [],
             "AFC": [], "Sindicatos": [], "Cooperativas": [], "PlanesComplementarios": [],
-            "Educacion": [], "Deuda": [], "Anticipos": [], "Sanciones": [], "OtrasDeducciones": []
+            "Educacion": [], "Deuda": [], "Anticipos": [], "Sanciones": [], "OtrasDeducciones": [],
+            "Libranzas": [], "PagosTerceros": [], "EmbargoFiscal": [], "Reintegros": []
         }
         total = val_salud + val_pension
         
-        # Fondo Solidaridad
-        val_fsp = abs(calculations.get('EXT_FSP', 0))
-        if val_fsp > 0:
-            deducciones["FondoSolidaridad"].append({"DeduccionSP": val_fsp, "DeduccionSub": 0, "Porcentaje": 1.0})
-            total += val_fsp
-            
-        # Otras deducciones base
-        for ext, key, inner in [('EXT_ARL', 'OtrasDeducciones', 'OtraDeduccion'), ('EXT_RETEN_FUENTE', 'RetencionFuente', 'RetencionFuente')]:
-            val = abs(calculations.get(ext, 0))
-            if val > 0:
-                deducciones[key].append({inner: val})
-                total += val
+        # Mapeo de embargos y deducciones genéricas según la guía
+        for code in ['EMB_ALI', 'EMB_GEN', 'ATTACH_SALARY', 'ASSIG_SALARY', 'DEDUCTION']:
+            if code in calculations:
+                val = abs(calculations[code])
+                if val > 0:
+                    deducciones["OtrasDeducciones"].append({"OtraDeduccion": val})
+                    total += val
                 
         return deducciones, total
 
@@ -169,7 +144,13 @@ class x_DianMapper:
             if amount <= 0: continue
             
             if att.get('is_refund'):
-                devengados["OtrosConceptos"].append({'Concepto': att.get('description', 'Otro Concepto'), 'Valor': amount, 'Tipo': 'OtrosConceptos'})
+                cat, inner_key = cls.x_map_attachment_to_devengo_category(att)
+                if cat == 'OtrosConceptos':
+                    devengados[cat].append({"DescripcionConcepto": att.get('description', 'Anticipo/Reintegro')[:100], inner_key: amount})
+                elif cat == 'Transporte':
+                    devengados[cat].append({inner_key: amount})
+                else:
+                    devengados[cat].append({inner_key: amount})
                 total_dev += amount
             else:
                 cat = cls.x_map_attachment_to_dian_category(att)
@@ -178,12 +159,57 @@ class x_DianMapper:
         return devengados, deducciones, total_dev, total_ded
 
     @classmethod
+    def x_map_attachment_to_devengo_category(cls, attachment):
+        code = (attachment.get('input_type_code') or '').upper()
+        desc = (attachment.get('description') or '').upper()
+        
+        if 'BONO' in code or 'BONIFICACION' in desc:
+            return 'Bonificaciones', 'BonificacionNS' if 'NS' in code or 'NO SALARIAL' in desc else 'BonificacionS'
+        if 'COMIS' in code or 'COMISION' in desc:
+            return 'Comisiones', 'Comision'
+        if 'VIATIC' in code or 'VIATICO' in desc:
+            return 'Transporte', 'ViaticoManuAlojNS' if 'NS' in code or 'NO SALARIAL' in desc else 'ViaticoManuAlojS'
+        if 'PRIMA' in code or 'PRIMA EXTR' in desc:
+            # Primas is single-occurrence in XSD; we should map to OtrosConceptos if Primas already used, 
+            # but for XSD adherence let's default to OtrosConceptos for these custom attachments to be safe
+            return 'OtrosConceptos', 'ConceptoNS'
+            
+        return 'OtrosConceptos', 'ConceptoS'
+
+    @classmethod
     def _x_add_attachment_to_deducciones(cls, deducciones, category, amount):
-        # Even if we have specific categories, the current template only supports OtrasDeducciones
-        # for these extra items. So we map them all to OtrasDeducciones for now 
-        # to ensure they are visible in the XML.
-        if category in ['Sindicatos', 'Cooperativas', 'Anticipos', 'Deuda', 'Sanciones', 'Educacion', 'AFC', 'PensionVoluntaria', 'OtrasDeducciones']:
-            deducciones["OtrasDeducciones"].append({"OtraDeduccion": amount})
+        if category in deducciones and isinstance(deducciones[category], list):
+            if category == 'Sindicatos':
+                deducciones[category].append({"Porcentaje": 0.0, "Deduccion": amount})
+            elif category == 'Sanciones':
+                # El XSD usa SancionPublic, SancionPriv. Por pragmatismo asignamos a privados por defecto.
+                deducciones[category].append({"SancionPublic": 0.0, "SancionPriv": amount})
+            elif category == 'Libranzas':
+                deducciones[category].append({"Descripcion": "Libranza", "Deduccion": amount})
+            elif category == 'Cooperativas':
+                deducciones[category].append({"Cooperativa": amount})
+            elif category == 'PensionVoluntaria':
+                deducciones[category].append({"PensionVoluntaria": amount})
+            elif category == 'AFC':
+                deducciones[category].append({"AFC": amount})
+            elif category == 'PlanesComplementarios':
+                deducciones[category].append({"PlanComplementario": amount})
+            elif category == 'Educacion':
+                deducciones[category].append({"Educacion": amount})
+            elif category == 'Deuda':
+                deducciones[category].append({"Deuda": amount})
+            elif category == 'PagosTerceros':
+                deducciones[category].append({"PagoTercero": amount})
+            elif category == 'Anticipos':
+                deducciones[category].append({"Anticipo": amount})
+            elif category == 'RetencionFuente':
+                deducciones[category].append({"RetencionFuente": amount})
+            elif category == 'EmbargoFiscal':
+                deducciones[category].append({"EmbargoFiscal": amount})
+            elif category == 'Reintegros':
+                deducciones[category].append({"Reintegro": amount})
+            else:
+                deducciones["OtrasDeducciones"].append({"OtraDeduccion": amount})
         else:
             deducciones["OtrasDeducciones"].append({"OtraDeduccion": amount})
 
@@ -193,15 +219,55 @@ class x_DianMapper:
         dian_config = dian_settings.get('dian', {})
         now = datetime.datetime.now()
         
+        tipo_documento = employee.get('l10n_co_document_type') or '13' # CC
+        try: tipo_documento = str(int(tipo_documento))
+        except: tipo_documento = '13'
+        
+        nombres = employee.get('name', '').split(' ')
+        primer_nombre = nombres[0] if nombres else ''
+        otros_nombres = ' '.join(nombres[1:-2]) if len(nombres) > 2 else ''
+        primer_apellido = nombres[-2] if len(nombres) >= 2 else (nombres[-1] if nombres else '')
+        segundo_apellido = nombres[-1] if len(nombres) >= 2 else ''
+        
+        software_id = dian_config.get('software_id', '')
+        software_pin = dian_config.get('software_pin', '')
+        numero_slip = slip.get('number', '')
+        software_sc_str = f"{software_id}{software_pin}{numero_slip}"
+        software_sc_hash = hashlib.sha384(software_sc_str.encode('utf-8')).hexdigest()
+        
         return {
-            "Novedad": {"CUNENovedad": "false"},
-            "Periodo": {"FechaIngreso": contract.get('date_start'), "FechaLiquidacionInicio": slip['date_from'], "FechaLiquidacionFin": slip['date_to'], "TiempoLaborado": 30, "FechaGen": now.strftime("%Y-%m-%d")},
+            "Novedad": {"CUNENov": "false"},
+            "Periodo": {
+                "FechaIngreso": contract.get('date_start'), 
+                "FechaLiquidacionInicio": slip['date_from'], 
+                "FechaLiquidacionFin": slip['date_to'], 
+                "TiempoLaborado": 30, 
+                "FechaGen": now.strftime("%Y-%m-%d")
+            },
             "NumeroSecuenciaXML": {"Consecutivo": slip.get('number', ''), "Numero": slip.get('number', ''), "Prefijo": "NOM"},
-            "LugarGeneracionXML": {"Pais": "CO", "DepartamentoEstado": company.get('state_id', [17])[0], "MunicipioCiudad": company.get('city', '17001'), "Idioma": "es"},
-            "ProveedorXML": {"RazonSocial": company.get('name', ''), "NIT": company.get('matches_nit', company.get('vat', '')), "DV": company.get('matches_dv', "1"), "SoftwareID": dian_config.get('software_id', ''), "SoftwareSC": dian_config.get('software_pin', '')},
+            "LugarGeneracionXML": {"Pais": "CO", "DepartamentoEstado": "17", "MunicipioCiudad": "17001", "Idioma": "es"},
+            "ProveedorXML": {"RazonSocial": company.get('name', ''), "NIT": company.get('matches_nit', company.get('vat', '123456789')), "DV": company.get('matches_dv', "1"), "SoftwareID": software_id, "SoftwareSC": software_sc_hash},
             "InformacionGeneral": {"Version": "V1.0: Documento Soporte de Pago de Nómina Electrónica", "Ambiente": "2" if dian_config.get('testing_id') else "1", "TipoXML": "102", "CUNE": "", "EncripCUNE": "CUNE-SHA384", "FechaGen": now.strftime("%Y-%m-%d"), "HoraGen": now.strftime("%H:%M:%S"), "PeriodoNomina": "4", "TipoMoneda": "COP"},
-            "Empleador": {"NIT": company.get('matches_nit', company.get('vat', '')), "DigitoVerificacion": company.get('matches_dv', "1"), "RazonSocial": company.get('name'), "Pais": "CO", "DepartamentoEstado": "17", "MunicipioCiudad": "17001", "Direccion": company.get('street')},
-            "Trabajador": {"TipoTrabajador": "01", "SubtipoTrabajador": "00", "AltoRiesgoPension": False, "Documento": employee.get('identification_id'), "PrimerApellido": employee.get('name', '').split(' ')[-1], "PrimerNombre": employee.get('name', '').split(' ')[0], "LugarTrabajoPais": "CO", "LugarTrabajoDepartamentoEstado": "17", "LugarTrabajoMunicipioCiudad": "17001", "Direccion": data.get('employee_address', {}).get('street', 'Sin Dirección'), "Sueldo": contract.get('wage'), "CodigoTrabajador": employee.get('id')},
+            "Empleador": {"NIT": company.get('matches_nit', company.get('vat', '123456789')), "DigitoVerificacion": company.get('matches_dv', "1"), "RazonSocial": company.get('name'), "Pais": "CO", "DepartamentoEstado": "17", "MunicipioCiudad": "17001", "Direccion": company.get('street', 'Sin Direccion')},
+            "Trabajador": {
+                "TipoTrabajador": "01", 
+                "SubTipoTrabajador": "00", 
+                "AltoRiesgoPension": False, 
+                "TipoDocumento": tipo_documento,
+                "NumeroDocumento": employee.get('identification_id', '123456'), 
+                "PrimerApellido": primer_apellido, 
+                "SegundoApellido": segundo_apellido,
+                "PrimerNombre": primer_nombre, 
+                "OtrosNombres": otros_nombres,
+                "LugarTrabajoPais": "CO", 
+                "LugarTrabajoDepartamentoEstado": "17", 
+                "LugarTrabajoMunicipioCiudad": "17001", 
+                "LugarTrabajoDireccion": data.get('employee_address', {}).get('street', 'Sin Dirección'), 
+                "SalarioIntegral": False,
+                "TipoContrato": "1",
+                "Sueldo": contract.get('wage', 0), 
+                "CodigoTrabajador": employee.get('id', '')
+            },
             "Pago": {"Forma": "1", "Metodo": "10"},
             "FechasPagos": [{"FechaPago": slip['date_to']}],
             "Devengados": devengados,
@@ -213,26 +279,42 @@ class x_DianMapper:
                 "ComprobanteTotal": round(total_dev - total_ded, 2)
             }
         }
+
     @classmethod
     def x_map_attachment_to_dian_category(cls, attachment):
         code = (attachment.get('input_type_code') or '').upper()
         desc = (attachment.get('description') or '').upper()
-        
-        if 'SIND' in code or 'SINDICATO' in desc:
-            return 'Sindicatos'
-        if 'COOP' in code or 'COOPERATIVA' in desc:
-            return 'Cooperativas'
-        if 'ANT' in code or 'ANTICIPO' in desc:
-            return 'Anticipos'
-        if 'DEUD' in code or 'LIBRANZA' in desc or 'DEUDA' in desc:
-            return 'Deuda'
-        if 'SANC' in code or 'SANCION' in desc:
-            return 'Sanciones'
-        if 'EDUC' in code or 'EDUCACION' in desc:
-            return 'Educacion'
-        if 'AFC' in code or 'AFC' in desc:
-            return 'AFC'
-        if 'PENS' in code or 'VOLUNTARIA' in desc:
-            return 'PensionVoluntaria'
-            
+        if 'SIND' in code or 'SINDICATO' in desc: return 'Sindicatos'
+        if 'COOP' in code or 'COOPERATIVA' in desc: return 'Cooperativas'
+        if 'ANT' in code or 'ANTICIPO' in desc: return 'Anticipos'
+        if 'LIBRAN' in code or 'LIBRANZA' in desc: return 'Libranzas'
+        if 'DEUD' in code or 'DEUDA' in desc: return 'Deuda'
+        if 'SANC' in code or 'SANCION' in desc: return 'Sanciones'
+        if 'EDUC' in code or 'EDUCACION' in desc: return 'Educacion'
+        if 'AFC' in code or 'AFC' in desc: return 'AFC'
+        if 'PENS' in code or 'VOLUNTARIA' in desc: return 'PensionVoluntaria'
+        if 'PLAN_COMP' in code or 'COMPLEMENTARIO' in desc: return 'PlanesComplementarios'
+        if 'EMB' in code or 'EMBARGO' in desc: return 'EmbargoFiscal'
+        if 'REIN' in code or 'REINTEGRO' in desc: return 'Reintegros'
         return 'OtrasDeducciones'
+
+    @classmethod
+    def _x_extract_calculations_from_lines(cls, lines):
+        # Whitelist estricta basada en la Guía de Parametrización
+        WHITELIST = [
+            'BASIC', 'AUX_TRANS', 'HED', 'HEN', 'HEDD', 'HEND', 'RN', 'RDF', 'RNDF',
+            'SALUD', 'EMP_PENSION', 'LEAVE110', 'LEAVE120', 'EMB_ALI', 'EMB_GEN', 
+            'COMIS', 'ATTACH_SALARY', 'ASSIG_SALARY', 'DEDUCTION', 'REIMBURSEMENT'
+        ]
+        
+        extracted = {}
+        for line in lines:
+            code = line.get('code')
+            if code not in WHITELIST:
+                continue
+                
+            total = abs(line.get('total', 0))
+            if total > 0:
+                extracted[code] = total
+        
+        return extracted

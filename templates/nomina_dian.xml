@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<NominaIndividual
-    xmlns="dian:gov:co:facturaelectronica:NominaIndividual"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
-    xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2"
-    xmlns:xades="http://uri.etsi.org/01903/v1.3.2#"
-    xmlns:xades141="http://uri.etsi.org/01903/v1.4.1#"
-    xsi:schemaLocation="dian:gov:co:facturaelectronica:NominaIndividual NominaIndividualDeAjusteRelacionada.xsd">
+<NominaIndividual xmlns="dian:gov:co:facturaelectronica:NominaIndividual"
+                  xmlns:xs="http://www.w3.org/2001/XMLSchema-instance"
+                  xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+                  xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2"
+                  xmlns:xades="http://uri.etsi.org/01903/v1.3.2#"
+                  xmlns:xades141="http://uri.etsi.org/01903/v1.4.1#"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  SchemaLocation=""
+                  xsi:schemaLocation="dian:gov:co:facturaelectronica:NominaIndividual NominaIndividualElectronicaXSD.xsd">
 
     <ext:UBLExtensions>
         <ext:UBLExtension>
@@ -15,7 +16,7 @@
         </ext:UBLExtension>
     </ext:UBLExtensions>
 
-    <Novedad CUNENovedad="{{ Novedad.CUNENovedad }}">false</Novedad>
+    <Novedad CUNENov="{{ Novedad.CUNENov }}">false</Novedad>
 
     <Periodo
         FechaIngreso="{{ Periodo.FechaIngreso }}"
@@ -37,8 +38,6 @@
 
     <ProveedorXML
         RazonSocial="{{ ProveedorXML.RazonSocial }}"
-        PrimerApellido="{{ ProveedorXML.PrimerApellido }}"
-        PrimerNombre="{{ ProveedorXML.PrimerNombre }}"
         NIT="{{ ProveedorXML.NIT }}"
         DV="{{ ProveedorXML.DV }}"
         SoftwareID="{{ ProveedorXML.SoftwareID }}"
@@ -68,15 +67,20 @@
 
     <Trabajador
         TipoTrabajador="{{ Trabajador.TipoTrabajador }}"
-        SubtipoTrabajador="{{ Trabajador.SubtipoTrabajador }}"
+        SubTipoTrabajador="{{ Trabajador.SubTipoTrabajador }}"
         AltoRiesgoPension="{{ 'true' if Trabajador.AltoRiesgoPension else 'false' }}"
-        Documento="{{ Trabajador.Documento }}"
+        TipoDocumento="{{ Trabajador.TipoDocumento }}"
+        NumeroDocumento="{{ Trabajador.NumeroDocumento }}"
         PrimerApellido="{{ Trabajador.PrimerApellido }}"
-        PrimerNombre="{{ Trabajador.PrimerNombre }}"
+        SegundoApellido="{{ Trabajador.SegundoApellido }}"
+        PrimerNombre="{{ Trabajador.PrimerNombre }}" {% if Trabajador.OtrosNombres %}
+        OtrosNombres="{{ Trabajador.OtrosNombres }}"{% endif %}
         LugarTrabajoPais="{{ Trabajador.LugarTrabajoPais }}"
         LugarTrabajoDepartamentoEstado="{{ Trabajador.LugarTrabajoDepartamentoEstado }}"
         LugarTrabajoMunicipioCiudad="{{ Trabajador.LugarTrabajoMunicipioCiudad }}"
-        Direccion="{{ Trabajador.Direccion }}"
+        LugarTrabajoDireccion="{{ Trabajador.LugarTrabajoDireccion }}"
+        SalarioIntegral="{{ 'true' if Trabajador.SalarioIntegral else 'false' }}"
+        TipoContrato="{{ Trabajador.TipoContrato }}"
         Sueldo="{{ Trabajador.Sueldo }}"
         CodigoTrabajador="{{ Trabajador.CodigoTrabajador }}" />
 
@@ -84,28 +88,89 @@
         Forma="{{ Pago.Forma }}"
         Metodo="{{ Pago.Metodo }}" />
 
-    <FechasPagos> {% for fecha in FechasPagos %} <FechaPago>{{ fecha.FechaPago }}</FechaPago> {%
-        endfor %} </FechasPagos>
+    <FechasPagos> {% for fecha in FechasPagos %} <FechaPago>{{ fecha.FechaPago }}</FechaPago> {% endfor %} </FechasPagos>
 
     <Devengados>
-        <Basico DiasTrabajados="{{ Devengados.Basico.DiasTrabajados }}"
-            SueldoTrabajado="{{ Devengados.Basico.SueldoTrabajado }}" /> {% for trans in
-        Devengados.Transporte %} <Transporte AuxilioTransporte="{{ trans.AuxilioTransporte }}"
-            ViaticoManutAlojS="{{ trans.ViaticoManutAlojS }}" /> {% endfor %} {% for hed in
-        Devengados.HEDs %} <HED HoraInicio="{{ hed.HoraInicio }}" HoraFin="{{ hed.HoraFin }}"
-            Cantidad="{{ hed.Cantidad }}" Porcentaje="{{ hed.Porcentaje }}" Pago="{{ hed.Pago }}" />
-        {% endfor %} {% for hen in Devengados.HENs %} <HEN HoraInicio="{{ hen.HoraInicio }}"
-            HoraFin="{{ hen.HoraFin }}" Cantidad="{{ hen.Cantidad }}"
-            Porcentaje="{{ hen.Porcentaje }}" Pago="{{ hen.Pago }}" /> {% endfor %} </Devengados>
+        <Basico DiasTrabajados="{{ Devengados.Basico.DiasTrabajados }}" SueldoTrabajado="{{ Devengados.Basico.SueldoTrabajado }}" /> 
+        
+        {% if Devengados.Transporte %}
+        {% for trans in Devengados.Transporte %} 
+        <Transporte {% if trans.AuxilioTransporte %}AuxilioTransporte="{{ trans.AuxilioTransporte }}"{% endif %} {% if trans.ViaticoManuAlojS %}ViaticoManuAlojS="{{ trans.ViaticoManuAlojS }}"{% endif %} {% if trans.ViaticoManuAlojNS %}ViaticoManuAlojNS="{{ trans.ViaticoManuAlojNS }}"{% endif %} /> 
+        {% endfor %}
+        {% endif %}
+        
+        {% if Devengados.HEDs %} <HEDs> {% for x in Devengados.HEDs %} <HED Cantidad="{{ x.Cantidad }}" Porcentaje="{{ x.Porcentaje }}" Pago="{{ x.Pago }}" {% if x.HoraInicio %}HoraInicio="{{ x.HoraInicio }}"{% endif %} {% if x.HoraFin %}HoraFin="{{ x.HoraFin }}"{% endif %} /> {% endfor %} </HEDs> {% endif %}
+        {% if Devengados.HENs %} <HENs> {% for x in Devengados.HENs %} <HEN Cantidad="{{ x.Cantidad }}" Porcentaje="{{ x.Porcentaje }}" Pago="{{ x.Pago }}" {% if x.HoraInicio %}HoraInicio="{{ x.HoraInicio }}"{% endif %} {% if x.HoraFin %}HoraFin="{{ x.HoraFin }}"{% endif %} /> {% endfor %} </HENs> {% endif %}
+        {% if Devengados.HRNs %} <HRNs> {% for x in Devengados.HRNs %} <HRN Cantidad="{{ x.Cantidad }}" Porcentaje="{{ x.Porcentaje }}" Pago="{{ x.Pago }}" {% if x.HoraInicio %}HoraInicio="{{ x.HoraInicio }}"{% endif %} {% if x.HoraFin %}HoraFin="{{ x.HoraFin }}"{% endif %} /> {% endfor %} </HRNs> {% endif %}
+        {% if Devengados.HEDDFs %} <HEDDFs> {% for x in Devengados.HEDDFs %} <HEDDF Cantidad="{{ x.Cantidad }}" Porcentaje="{{ x.Porcentaje }}" Pago="{{ x.Pago }}" {% if x.HoraInicio %}HoraInicio="{{ x.HoraInicio }}"{% endif %} {% if x.HoraFin %}HoraFin="{{ x.HoraFin }}"{% endif %} /> {% endfor %} </HEDDFs> {% endif %}
+        {% if Devengados.HRDDFs %} <HRDDFs> {% for x in Devengados.HRDDFs %} <HRDDF Cantidad="{{ x.Cantidad }}" Porcentaje="{{ x.Porcentaje }}" Pago="{{ x.Pago }}" {% if x.HoraInicio %}HoraInicio="{{ x.HoraInicio }}"{% endif %} {% if x.HoraFin %}HoraFin="{{ x.HoraFin }}"{% endif %} /> {% endfor %} </HRDDFs> {% endif %}
+        {% if Devengados.HENDFs %} <HENDFs> {% for x in Devengados.HENDFs %} <HENDF Cantidad="{{ x.Cantidad }}" Porcentaje="{{ x.Porcentaje }}" Pago="{{ x.Pago }}" {% if x.HoraInicio %}HoraInicio="{{ x.HoraInicio }}"{% endif %} {% if x.HoraFin %}HoraFin="{{ x.HoraFin }}"{% endif %} /> {% endfor %} </HENDFs> {% endif %}
+        {% if Devengados.HRNDFs %} <HRNDFs> {% for x in Devengados.HRNDFs %} <HRNDF Cantidad="{{ x.Cantidad }}" Porcentaje="{{ x.Porcentaje }}" Pago="{{ x.Pago }}" {% if x.HoraInicio %}HoraInicio="{{ x.HoraInicio }}"{% endif %} {% if x.HoraFin %}HoraFin="{{ x.HoraFin }}"{% endif %} /> {% endfor %} </HRNDFs> {% endif %}
+
+        {% if Devengados.Vacaciones and (Devengados.Vacaciones.VacacionesComunes or Devengados.Vacaciones.VacacionesCompensadas) %}
+        <Vacaciones>
+            {% for vc in Devengados.Vacaciones.VacacionesComunes %}
+            <VacacionesComunes Cantidad="{{ vc.Cantidad }}" Pago="{{ vc.Pago }}" {% if vc.FechaInicio %}FechaInicio="{{ vc.FechaInicio }}"{% endif %} {% if vc.FechaFin %}FechaFin="{{ vc.FechaFin }}"{% endif %} />
+            {% endfor %}
+            {% for vcp in Devengados.Vacaciones.VacacionesCompensadas %}
+            <VacacionesCompensadas Cantidad="{{ vcp.Cantidad }}" Pago="{{ vcp.Pago }}" />
+            {% endfor %}
+        </Vacaciones>
+        {% endif %}
+
+        {% if Devengados.Primas %} 
+        <Primas Cantidad="{{ Devengados.Primas.Cantidad }}" Pago="{{ Devengados.Primas.Pago }}" {% if Devengados.Primas.PagoNS %}PagoNS="{{ Devengados.Primas.PagoNS }}"{% endif %} /> 
+        {% endif %}
+        
+        {% if Devengados.Cesantias %} 
+        <Cesantias Pago="{{ Devengados.Cesantias.Pago }}" Porcentaje="{{ Devengados.Cesantias.Porcentaje }}" PagoIntereses="{{ Devengados.Cesantias.PagoIntereses }}" /> 
+        {% endif %}
+
+        {% if Devengados.Incapacidades %} <Incapacidades> {% for inc in Devengados.Incapacidades %} <Incapacidad Cantidad="{{ inc.Cantidad }}" Tipo="{{ inc.Tipo }}" Pago="{{ inc.Pago }}" {% if inc.FechaInicio %}FechaInicio="{{ inc.FechaInicio }}"{% endif %} {% if inc.FechaFin %}FechaFin="{{ inc.FechaFin }}"{% endif %} /> {% endfor %} </Incapacidades> {% endif %}
+        {% if Devengados.Licencias and (Devengados.Licencias.LicenciaMP or Devengados.Licencias.LicenciaR or Devengados.Licencias.LicenciaNR) %}
+        <Licencias>
+            {% for l in Devengados.Licencias.LicenciaMP %} <LicenciaMP Cantidad="{{ l.Cantidad }}" Pago="{{ l.Pago }}" {% if l.FechaInicio %}FechaInicio="{{ l.FechaInicio }}"{% endif %} {% if l.FechaFin %}FechaFin="{{ l.FechaFin }}"{% endif %} /> {% endfor %}
+            {% for l in Devengados.Licencias.LicenciaR %} <LicenciaR Cantidad="{{ l.Cantidad }}" Pago="{{ l.Pago }}" {% if l.FechaInicio %}FechaInicio="{{ l.FechaInicio }}"{% endif %} {% if l.FechaFin %}FechaFin="{{ l.FechaFin }}"{% endif %} /> {% endfor %}
+            {% for l in Devengados.Licencias.LicenciaNR %} <LicenciaNR Cantidad="{{ l.Cantidad }}" {% if l.FechaInicio %}FechaInicio="{{ l.FechaInicio }}"{% endif %} {% if l.FechaFin %}FechaFin="{{ l.FechaFin }}"{% endif %} /> {% endfor %}
+        </Licencias>
+        {% endif %}
+        
+        {% if Devengados.Bonificaciones %} <Bonificaciones> {% for b in Devengados.Bonificaciones %} <Bonificacion {% if b.BonificacionS %}BonificacionS="{{ b.BonificacionS }}"{% endif %} {% if b.BonificacionNS %}BonificacionNS="{{ b.BonificacionNS }}"{% endif %}/> {% endfor %} </Bonificaciones> {% endif %}
+        {% if Devengados.Auxilios %} <Auxilios> {% for a in Devengados.Auxilios %} <Auxilio {% if a.AuxilioS %}AuxilioS="{{ a.AuxilioS }}"{% endif %} {% if a.AuxilioNS %}AuxilioNS="{{ a.AuxilioNS }}"{% endif %}/> {% endfor %} </Auxilios> {% endif %}
+        {% if Devengados.HuelgasLegales %} <HuelgasLegales> {% for h in Devengados.HuelgasLegales %} <HuelgaLegal Cantidad="{{ h.Cantidad }}" {% if h.FechaInicio %}FechaInicio="{{ h.FechaInicio }}"{% endif %} {% if h.FechaFin %}FechaFin="{{ h.FechaFin }}"{% endif %} /> {% endfor %} </HuelgasLegales> {% endif %}
+        {% if Devengados.OtrosConceptos %} <OtrosConceptos> {% for o in Devengados.OtrosConceptos %} <OtroConcepto DescripcionConcepto="{{ o.DescripcionConcepto }}" {% if o.ConceptoS %}ConceptoS="{{ o.ConceptoS }}"{% endif %} {% if o.ConceptoNS %}ConceptoNS="{{ o.ConceptoNS }}"{% endif %}/> {% endfor %} </OtrosConceptos> {% endif %}
+        {% if Devengados.Compensaciones %} <Compensaciones> {% for c in Devengados.Compensaciones %} <Compensacion CompensacionO="{{ c.CompensacionO }}" CompensacionE="{{ c.CompensacionE }}" /> {% endfor %} </Compensaciones> {% endif %}
+        {% if Devengados.BonoEPCTVs %} <BonoEPCTVs> {% for b in Devengados.BonoEPCTVs %} <BonoEPCTV {% if b.PagoS %}PagoS="{{ b.PagoS }}"{% endif %} {% if b.PagoNS %}PagoNS="{{ b.PagoNS }}"{% endif %} {% if b.PagoAlimentacionS %}PagoAlimentacionS="{{ b.PagoAlimentacionS }}"{% endif %} {% if b.PagoAlimentacionNS %}PagoAlimentacionNS="{{ b.PagoAlimentacionNS }}"{% endif %}/> {% endfor %} </BonoEPCTVs> {% endif %}
+        {% if Devengados.Comisiones %} <Comisiones> {% for c in Devengados.Comisiones %} <Comision>{{ c.Comision }}</Comision> {% endfor %} </Comisiones> {% endif %}
+        {% if Devengados.PagosTerceros %} <PagosTerceros> {% for p in Devengados.PagosTerceros %} <PagoTercero>{{ p.PagoTercero }}</PagoTercero> {% endfor %} </PagosTerceros> {% endif %}
+        {% if Devengados.Anticipos %} <Anticipos> {% for a in Devengados.Anticipos %} <Anticipo>{{ a.Anticipo }}</Anticipo> {% endfor %} </Anticipos> {% endif %}
+        {% if Devengados.Dotacion %} <Dotacion> {% for d in Devengados.Dotacion %} <Dotacion>{{ d.Dotacion }}</Dotacion> {% endfor %} </Dotacion> {% endif %}
+        {% if Devengados.ApoyoSost %} <ApoyoSost> {% for a in Devengados.ApoyoSost %} <ApoyoSost>{{ a.ApoyoSost }}</ApoyoSost> {% endfor %} </ApoyoSost> {% endif %}
+        {% if Devengados.Teletrabajo %} <Teletrabajo> {% for t in Devengados.Teletrabajo %} <Teletrabajo>{{ t.Teletrabajo }}</Teletrabajo> {% endfor %} </Teletrabajo> {% endif %}
+        {% if Devengados.Reintegros %} <Reintegros> {% for r in Devengados.Reintegros %} <Reintegro>{{ r.Reintegro }}</Reintegro> {% endfor %} </Reintegros> {% endif %}
+    </Devengados>
 
     <Deducciones>
-        <Salud Porcentaje="{{ Deducciones.Salud.Porcentaje }}"
-            Deduccion="{{ Deducciones.Salud.Deduccion }}" />
-        <FondoPension
-            Porcentaje="{{ Deducciones.Pension.Porcentaje }}"
-            Deduccion="{{ Deducciones.Pension.Deduccion }}" /> {% for fsp in
-        Deducciones.FondoSolidaridad %} <FondoSP Porcentaje="{{ fsp.Porcentaje }}"
-            DeduccionSP="{{ fsp.DeduccionSP }}" DeduccionSub="{{ fsp.DeduccionSub }}" /> {% endfor %} {% if Deducciones.OtrasDeducciones %} <OtrasDeducciones> {% for otra in Deducciones.OtrasDeducciones %} <OtraDeduccion>{{ otra.OtraDeduccion }}</OtraDeduccion> {% endfor %} </OtrasDeducciones> {% endif %} </Deducciones>
+        <Salud Porcentaje="{{ Deducciones.Salud.Porcentaje }}" Deduccion="{{ Deducciones.Salud.Deduccion }}" />
+        <FondoPension Porcentaje="{{ Deducciones.Pension.Porcentaje }}" Deduccion="{{ Deducciones.Pension.Deduccion }}" /> 
+        
+        {% if Deducciones.FondoSolidaridad %} {% for fsp in Deducciones.FondoSolidaridad %} <FondoSP Porcentaje="{{ fsp.Porcentaje }}" DeduccionSP="{{ fsp.DeduccionSP }}" DeduccionSub="{{ fsp.DeduccionSub }}" /> {% endfor %} {% endif %}
+        {% if Deducciones.Sindicatos %} <Sindicatos> {% for s in Deducciones.Sindicatos %} <Sindicato Porcentaje="{{ s.Porcentaje }}" Deduccion="{{ s.Deduccion }}" /> {% endfor %} </Sindicatos> {% endif %}
+        {% if Deducciones.Sanciones %} <Sanciones> {% for s in Deducciones.Sanciones %} <Sancion SancionPublic="{{ s.SancionPublic }}" SancionPriv="{{ s.SancionPriv }}" /> {% endfor %} </Sanciones> {% endif %}
+        {% if Deducciones.Libranzas %} <Libranzas> {% for l in Deducciones.Libranzas %} <Libranza Descripcion="{{ l.Descripcion }}" Deduccion="{{ l.Deduccion }}" /> {% endfor %} </Libranzas> {% endif %}
+        {% if Deducciones.PagosTerceros %} <PagosTerceros> {% for p in Deducciones.PagosTerceros %} <PagoTercero>{{ p.PagoTercero }}</PagoTercero> {% endfor %} </PagosTerceros> {% endif %}
+        {% if Deducciones.Anticipos %} <Anticipos> {% for a in Deducciones.Anticipos %} <Anticipo>{{ a.Anticipo }}</Anticipo> {% endfor %} </Anticipos> {% endif %}
+        {% if Deducciones.OtrasDeducciones %} <OtrasDeducciones> {% for otra in Deducciones.OtrasDeducciones %} <OtraDeduccion>{{ otra.OtraDeduccion }}</OtraDeduccion> {% endfor %} </OtrasDeducciones> {% endif %} 
+        {% if Deducciones.PensionVoluntaria %} <PensionVoluntaria> {% for p in Deducciones.PensionVoluntaria %} <PensionVoluntaria>{{ p.PensionVoluntaria }}</PensionVoluntaria> {% endfor %} </PensionVoluntaria> {% endif %}
+        {% if Deducciones.RetencionFuente %} <RetencionFuente> {% for r in Deducciones.RetencionFuente %} <RetencionFuente>{{ r.RetencionFuente }}</RetencionFuente> {% endfor %} </RetencionFuente> {% endif %}
+        {% if Deducciones.AFC %} <AFC> {% for a in Deducciones.AFC %} <AFC>{{ a.AFC }}</AFC> {% endfor %} </AFC> {% endif %}
+        {% if Deducciones.Cooperativas %} <Cooperativas> {% for c in Deducciones.Cooperativas %} <Cooperativa>{{ c.Cooperativa }}</Cooperativa> {% endfor %} </Cooperativas> {% endif %}
+        {% if Deducciones.EmbargoFiscal %} <EmbargoFiscal> {% for e in Deducciones.EmbargoFiscal %} <EmbargoFiscal>{{ e.EmbargoFiscal }}</EmbargoFiscal> {% endfor %} </EmbargoFiscal> {% endif %}
+        {% if Deducciones.PlanesComplementarios %} <PlanesComplementarios> {% for p in Deducciones.PlanesComplementarios %} <PlanComplementario>{{ p.PlanComplementario }}</PlanComplementario> {% endfor %} </PlanesComplementarios> {% endif %}
+        {% if Deducciones.Educacion %} <Educacion> {% for e in Deducciones.Educacion %} <Educacion>{{ e.Educacion }}</Educacion> {% endfor %} </Educacion> {% endif %}
+        {% if Deducciones.Reintegros %} <Reintegros> {% for r in Deducciones.Reintegros %} <Reintegro>{{ r.Reintegro }}</Reintegro> {% endfor %} </Reintegros> {% endif %}
+        {% if Deducciones.Deuda %} <Deuda> {% for d in Deducciones.Deuda %} <Deuda>{{ d.Deuda }}</Deuda> {% endfor %} </Deuda> {% endif %}
+    </Deducciones>
 
     <DevengadosTotal>{{ Totales.DevengadoTotal }}</DevengadosTotal>
     <DeduccionesTotal>{{ Totales.DeduccionesTotal }}</DeduccionesTotal>

@@ -14,36 +14,34 @@ class Config:
 
     CONCEPTO_MAP = {
         'BASIC': 'Basico',
-        'SUELDO': 'Basico',
-        'EXT_BASICO': 'Basico',
-
         'AUX_TRANS': 'Transporte',
-        'EXT_TRANS': 'Transporte',
-
         'HED': 'HED',
         'HEN': 'HEN',
-        'RNOC': 'HRN',
-        'HEFD': 'HEDDF',
-        'HEFN': 'HENDF',
-        'REC_NOC': 'HRN',
-        'EXT_RNOC': 'HRN',
-
+        'HEDD': 'HEDDF',
+        'HEND': 'HENDF',
+        'RN': 'HRN',
+        'RDF': 'HRDDF',
+        'RNDF': 'HRNDF',
         'SALUD': 'Salud',
-        'SS_SALUD': 'Salud',
-        'PENSION': 'Pension',
-        'SS_PENSION': 'Pension',
-        'FSP': 'FondoSolidaridad',
-        'EXT_FSP': 'FondoSolidaridad'
+        'EMP_PENSION': 'Pension',
+        'EMB_ALI': 'OtrasDeducciones',
+        'EMB_GEN': 'OtrasDeducciones',
+        'COMIS': 'Comisiones',
+        'LEAVE110': 'Incapacidades',
+        'LEAVE120': 'Vacaciones',
+        'ATTACH_SALARY': 'OtrasDeducciones',
+        'ASSIG_SALARY': 'OtrasDeducciones',
+        'DEDUCTION': 'OtrasDeducciones',
+        'REIMBURSEMENT': 'OtrosConceptos'
     }
 
     PORCENTAJES_EXTRA = {
         'HED': 25.00,
         'HEN': 75.00,
-        'HRN': 35.00,
-        'HED_DF': 100.00,
-        'HEN_DF': 150.00,
-        'RNOC_DF': 75.00,
-        'HEDDF': 100.00,
-        'HENDF': 150.00,
+        'HEDD': 100.00,
+        'HEND': 150.00,
+        'RN': 35.00,
+        'RDF': 75.00,
+        'RNDF': 110.00,
     }
 

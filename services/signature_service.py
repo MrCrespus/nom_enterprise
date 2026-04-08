@@ -261,3 +261,16 @@ class x_SignatureService:
             issuer_serial = etree.SubElement(cert_node, "{http://uri.etsi.org/01903/v1.3.2#}IssuerSerial")
             etree.SubElement(issuer_serial, "{http://www.w3.org/2000/09/xmldsig#}X509IssuerName").text = cert_item.issuer.rfc4514_string()
             etree.SubElement(issuer_serial, "{http://www.w3.org/2000/09/xmldsig#}X509SerialNumber").text = str(cert_item.serial_number)
+
+        sig_policy_id_node = etree.SubElement(signed_sig_props, "{http://uri.etsi.org/01903/v1.3.2#}SignaturePolicyIdentifier")
+        sig_policy_id = etree.SubElement(sig_policy_id_node, "{http://uri.etsi.org/01903/v1.3.2#}SignaturePolicyId")
+        sig_policy_id_id = etree.SubElement(sig_policy_id, "{http://uri.etsi.org/01903/v1.3.2#}SigPolicyId")
+        etree.SubElement(sig_policy_id_id, "{http://uri.etsi.org/01903/v1.3.2#}Identifier").text = "https://facturaelectronica.dian.gov.co/politicadefirma/v2/politicadefirmav2.pdf"
+        etree.SubElement(sig_policy_id_id, "{http://uri.etsi.org/01903/v1.3.2#}Description").text = "Política de firma para facturas electrónicas de la República de Colombia"
+        sig_policy_hash = etree.SubElement(sig_policy_id, "{http://uri.etsi.org/01903/v1.3.2#}SigPolicyHash")
+        etree.SubElement(sig_policy_hash, "{http://www.w3.org/2000/09/xmldsig#}DigestMethod", Algorithm="http://www.w3.org/2001/04/xmlenc#sha256")
+        etree.SubElement(sig_policy_hash, "{http://www.w3.org/2000/09/xmldsig#}DigestValue").text = "dMoMvtcG5aIzgYo0tIsSQeVJBDnUnfSOfBpxXrmor0Y="
+
+        signer_role = etree.SubElement(signed_sig_props, "{http://uri.etsi.org/01903/v1.3.2#}SignerRole")
+        claimed_roles = etree.SubElement(signer_role, "{http://uri.etsi.org/01903/v1.3.2#}ClaimedRoles")
+        etree.SubElement(claimed_roles, "{http://uri.etsi.org/01903/v1.3.2#}ClaimedRole").text = "supplier"

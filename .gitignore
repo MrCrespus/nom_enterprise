@@ -10,7 +10,11 @@ env/
 
 # Odoo/API specific
 output_xmls/
+logs/
+debug_xmls/
 *.log
+*.xml
+!.gitignore
 
 # IDE
 .vscode/
