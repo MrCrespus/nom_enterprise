@@ -12,6 +12,7 @@ env/
 output_xmls/
 logs/
 debug_xmls/
+companies.json
 *.log
 *.xml
 !.gitignore

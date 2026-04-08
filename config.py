@@ -45,3 +45,27 @@ class Config:
         'RNDF': 110.00,
     }
 
+    @staticmethod
+    def x_resolve_password(url, db, user):
+        """Busca la contraseña en el archivo local companies.json"""
+        import json
+        vault_path = 'companies.json'
+        
+        if not os.path.exists(vault_path):
+            raise FileNotFoundError(f"No se encontró el banco de credenciales en {vault_path}. Por favor créalo basándote en la plantilla.")
+
+        try:
+            with open(vault_path, 'r', encoding='utf-8') as f:
+                companies = json.load(f)
+        except Exception as e:
+            raise Exception(f"Error al leer el banco de credenciales JSON: {e}")
+
+        # Buscamos la coincidencia exacta
+        for company in companies:
+            if (company.get('url') == url and 
+                company.get('db') == db and 
+                company.get('user') == user):
+                return company.get('password')
+
+        raise ValueError(f"No se encontró ninguna contraseña para el usuario {user} en la base {db} ({url}) en el banco de credenciales local.")
+

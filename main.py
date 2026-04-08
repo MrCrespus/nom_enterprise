@@ -8,6 +8,7 @@ from services.dian_mapper import x_DianMapper
 from services.xml_generator import x_XMLGenerator
 from services.cune_calculator import x_CuneCalculator
 from logger_config import x_setup_logging
+from config import Config
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Odoo Payroll DIAN Bridge')
@@ -187,8 +188,12 @@ def main():
                 parts = clean_creds.split('|||')
                 if len(parts) == 4:
                     odoo_url, odoo_db, odoo_username, odoo_password = parts
+                elif len(parts) == 3:
+                    odoo_url, odoo_db, odoo_username = parts
+                    logger.info(f"Resolviendo contraseña local para {odoo_username} en {odoo_db}...")
+                    odoo_password = Config.x_resolve_password(odoo_url, odoo_db, odoo_username)
                 else:
-                    logger.error("Formato de credenciales inválido.")
+                    logger.error("Formato de credenciales inválido. Debe ser URL|||DB|||User|||Pass o URL|||DB|||User (usando bóveda).")
                     sys.exit(1)
             except Exception:
                 logger.error("Error al procesar credenciales.")

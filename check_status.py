@@ -4,6 +4,7 @@ from database.odoo_client import x_OdooClient
 from repositories.payroll_repo import x_PayrollRepository
 from services.dian_client import x_DianClient
 from logger_config import x_setup_logging
+from config import Config
 import xml.etree.ElementTree as ET
 
 def parse_args():
@@ -24,7 +25,13 @@ def main():
             parts = args.credentials.strip("'\"").split('|||')
             if len(parts) == 4:
                 odoo_url, odoo_db, odoo_username, odoo_password = parts
-
+            elif len(parts) == 3:
+                odoo_url, odoo_db, odoo_username = parts
+                logger.info(f"Resolviendo contraseña local para {odoo_username} en {odoo_db}...")
+                odoo_password = Config.x_resolve_password(odoo_url, odoo_db, odoo_username)
+            else:
+                logger.error("Formato de credenciales inválido. Use URL|||DB|||User|||Pass o URL|||DB|||User.")
+                sys.exit(1)
         logger.info("Conectando a Odoo para recuperar certificado...")
         client = x_OdooClient(url=odoo_url, db=odoo_db, username=odoo_username, password=odoo_password)
         repo = x_PayrollRepository(client)
