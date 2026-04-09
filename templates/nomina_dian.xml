@@ -9,12 +9,7 @@
                   SchemaLocation=""
                   xsi:schemaLocation="dian:gov:co:facturaelectronica:NominaIndividual NominaIndividualElectronicaXSD.xsd">
 
-    <ext:UBLExtensions>
-        <ext:UBLExtension>
-            <ext:ExtensionContent>
-            </ext:ExtensionContent>
-        </ext:UBLExtension>
-    </ext:UBLExtensions>
+    <!-- Se eliminan UBLExtensions del template; el SignatureService las inyectará dinámicamente -->
 
     <Novedad CUNENov="{{ Novedad.CUNENov }}">false</Novedad>
 
@@ -43,7 +38,7 @@
         SoftwareID="{{ ProveedorXML.SoftwareID }}"
         SoftwareSC="{{ ProveedorXML.SoftwareSC }}" />
 
-    <CodigoQR>https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey={{ CUNE }}</CodigoQR>
+    <CodigoQR>https://catalogo-vpfe{{ '-hab' if InformacionGeneral.Ambiente == '2' else '' }}.dian.gov.co/document/searchqr?documentkey={{ CUNE }}</CodigoQR>
 
     <InformacionGeneral
         Version="V1.0: Documento Soporte de Pago de Nómina Electrónica"
@@ -81,7 +76,7 @@
         LugarTrabajoDireccion="{{ Trabajador.LugarTrabajoDireccion }}"
         SalarioIntegral="{{ 'true' if Trabajador.SalarioIntegral else 'false' }}"
         TipoContrato="{{ Trabajador.TipoContrato }}"
-        Sueldo="{{ Trabajador.Sueldo }}"
+        Sueldo="{{ "%.2f"|format(Trabajador.Sueldo|float) }}"
         CodigoTrabajador="{{ Trabajador.CodigoTrabajador }}" />
 
     <Pago
@@ -91,11 +86,11 @@
     <FechasPagos> {% for fecha in FechasPagos %} <FechaPago>{{ fecha.FechaPago }}</FechaPago> {% endfor %} </FechasPagos>
 
     <Devengados>
-        <Basico DiasTrabajados="{{ Devengados.Basico.DiasTrabajados }}" SueldoTrabajado="{{ Devengados.Basico.SueldoTrabajado }}" /> 
+        <Basico DiasTrabajados="{{ Devengados.Basico.DiasTrabajados }}" SueldoTrabajado="{{ "%.2f"|format(Devengados.Basico.SueldoTrabajado|float) }}" /> 
         
         {% if Devengados.Transporte %}
         {% for trans in Devengados.Transporte %} 
-        <Transporte {% if trans.AuxilioTransporte %}AuxilioTransporte="{{ trans.AuxilioTransporte }}"{% endif %} {% if trans.ViaticoManuAlojS %}ViaticoManuAlojS="{{ trans.ViaticoManuAlojS }}"{% endif %} {% if trans.ViaticoManuAlojNS %}ViaticoManuAlojNS="{{ trans.ViaticoManuAlojNS }}"{% endif %} /> 
+        <Transporte {% if trans.AuxilioTransporte %}AuxilioTransporte="{{ "%.2f"|format(trans.AuxilioTransporte|float) }}"{% endif %} {% if trans.ViaticoManuAlojS %}ViaticoManuAlojS="{{ "%.2f"|format(trans.ViaticoManuAlojS|float) }}"{% endif %} {% if trans.ViaticoManuAlojNS %}ViaticoManuAlojNS="{{ "%.2f"|format(trans.ViaticoManuAlojNS|float) }}"{% endif %} /> 
         {% endfor %}
         {% endif %}
         
@@ -110,23 +105,23 @@
         {% if Devengados.Vacaciones and (Devengados.Vacaciones.VacacionesComunes or Devengados.Vacaciones.VacacionesCompensadas) %}
         <Vacaciones>
             {% for vc in Devengados.Vacaciones.VacacionesComunes %}
-            <VacacionesComunes Cantidad="{{ vc.Cantidad }}" Pago="{{ vc.Pago }}" {% if vc.FechaInicio %}FechaInicio="{{ vc.FechaInicio }}"{% endif %} {% if vc.FechaFin %}FechaFin="{{ vc.FechaFin }}"{% endif %} />
+            <VacacionesComunes Cantidad="{{ vc.Cantidad }}" Pago="{{ "%.2f"|format(vc.Pago|float) }}" {% if vc.FechaInicio %}FechaInicio="{{ vc.FechaInicio }}"{% endif %} {% if vc.FechaFin %}FechaFin="{{ vc.FechaFin }}"{% endif %} />
             {% endfor %}
             {% for vcp in Devengados.Vacaciones.VacacionesCompensadas %}
-            <VacacionesCompensadas Cantidad="{{ vcp.Cantidad }}" Pago="{{ vcp.Pago }}" />
+            <VacacionesCompensadas Cantidad="{{ vcp.Cantidad }}" Pago="{{ "%.2f"|format(vcp.Pago|float) }}" />
             {% endfor %}
         </Vacaciones>
         {% endif %}
 
         {% if Devengados.Primas %} 
-        <Primas Cantidad="{{ Devengados.Primas.Cantidad }}" Pago="{{ Devengados.Primas.Pago }}" {% if Devengados.Primas.PagoNS %}PagoNS="{{ Devengados.Primas.PagoNS }}"{% endif %} /> 
+        <Primas Cantidad="{{ Devengados.Primas.Cantidad }}" Pago="{{ "%.2f"|format(Devengados.Primas.Pago|float) }}" {% if Devengados.Primas.PagoNS %}PagoNS="{{ "%.2f"|format(Devengados.Primas.PagoNS|float) }}"{% endif %} /> 
         {% endif %}
         
         {% if Devengados.Cesantias %} 
         <Cesantias Pago="{{ Devengados.Cesantias.Pago }}" Porcentaje="{{ Devengados.Cesantias.Porcentaje }}" PagoIntereses="{{ Devengados.Cesantias.PagoIntereses }}" /> 
         {% endif %}
 
-        {% if Devengados.Incapacidades %} <Incapacidades> {% for inc in Devengados.Incapacidades %} <Incapacidad Cantidad="{{ inc.Cantidad }}" Tipo="{{ inc.Tipo }}" Pago="{{ inc.Pago }}" {% if inc.FechaInicio %}FechaInicio="{{ inc.FechaInicio }}"{% endif %} {% if inc.FechaFin %}FechaFin="{{ inc.FechaFin }}"{% endif %} /> {% endfor %} </Incapacidades> {% endif %}
+        {% if Devengados.Incapacidades %} <Incapacidades> {% for inc in Devengados.Incapacidades %} <Incapacidad Cantidad="{{ inc.Cantidad }}" Tipo="{{ inc.Tipo }}" Pago="{{ "%.2f"|format(inc.Pago|float) }}" {% if inc.FechaInicio %}FechaInicio="{{ inc.FechaInicio }}"{% endif %} {% if inc.FechaFin %}FechaFin="{{ inc.FechaFin }}"{% endif %} /> {% endfor %} </Incapacidades> {% endif %}
         {% if Devengados.Licencias and (Devengados.Licencias.LicenciaMP or Devengados.Licencias.LicenciaR or Devengados.Licencias.LicenciaNR) %}
         <Licencias>
             {% for l in Devengados.Licencias.LicenciaMP %} <LicenciaMP Cantidad="{{ l.Cantidad }}" Pago="{{ l.Pago }}" {% if l.FechaInicio %}FechaInicio="{{ l.FechaInicio }}"{% endif %} {% if l.FechaFin %}FechaFin="{{ l.FechaFin }}"{% endif %} /> {% endfor %}
@@ -138,10 +133,10 @@
         {% if Devengados.Bonificaciones %} <Bonificaciones> {% for b in Devengados.Bonificaciones %} <Bonificacion {% if b.BonificacionS %}BonificacionS="{{ b.BonificacionS }}"{% endif %} {% if b.BonificacionNS %}BonificacionNS="{{ b.BonificacionNS }}"{% endif %}/> {% endfor %} </Bonificaciones> {% endif %}
         {% if Devengados.Auxilios %} <Auxilios> {% for a in Devengados.Auxilios %} <Auxilio {% if a.AuxilioS %}AuxilioS="{{ a.AuxilioS }}"{% endif %} {% if a.AuxilioNS %}AuxilioNS="{{ a.AuxilioNS }}"{% endif %}/> {% endfor %} </Auxilios> {% endif %}
         {% if Devengados.HuelgasLegales %} <HuelgasLegales> {% for h in Devengados.HuelgasLegales %} <HuelgaLegal Cantidad="{{ h.Cantidad }}" {% if h.FechaInicio %}FechaInicio="{{ h.FechaInicio }}"{% endif %} {% if h.FechaFin %}FechaFin="{{ h.FechaFin }}"{% endif %} /> {% endfor %} </HuelgasLegales> {% endif %}
-        {% if Devengados.OtrosConceptos %} <OtrosConceptos> {% for o in Devengados.OtrosConceptos %} <OtroConcepto DescripcionConcepto="{{ o.DescripcionConcepto }}" {% if o.ConceptoS %}ConceptoS="{{ o.ConceptoS }}"{% endif %} {% if o.ConceptoNS %}ConceptoNS="{{ o.ConceptoNS }}"{% endif %}/> {% endfor %} </OtrosConceptos> {% endif %}
+        {% if Devengados.OtrosConceptos %} <OtrosConceptos> {% for o in Devengados.OtrosConceptos %} <OtroConcepto DescripcionConcepto="{{ o.DescripcionConcepto }}" {% if o.ConceptoS %}ConceptoS="{{ "%.2f"|format(o.ConceptoS|float) }}"{% endif %} {% if o.ConceptoNS %}ConceptoNS="{{ "%.2f"|format(o.ConceptoNS|float) }}"{% endif %}/> {% endfor %} </OtrosConceptos> {% endif %}
         {% if Devengados.Compensaciones %} <Compensaciones> {% for c in Devengados.Compensaciones %} <Compensacion CompensacionO="{{ c.CompensacionO }}" CompensacionE="{{ c.CompensacionE }}" /> {% endfor %} </Compensaciones> {% endif %}
         {% if Devengados.BonoEPCTVs %} <BonoEPCTVs> {% for b in Devengados.BonoEPCTVs %} <BonoEPCTV {% if b.PagoS %}PagoS="{{ b.PagoS }}"{% endif %} {% if b.PagoNS %}PagoNS="{{ b.PagoNS }}"{% endif %} {% if b.PagoAlimentacionS %}PagoAlimentacionS="{{ b.PagoAlimentacionS }}"{% endif %} {% if b.PagoAlimentacionNS %}PagoAlimentacionNS="{{ b.PagoAlimentacionNS }}"{% endif %}/> {% endfor %} </BonoEPCTVs> {% endif %}
-        {% if Devengados.Comisiones %} <Comisiones> {% for c in Devengados.Comisiones %} <Comision>{{ c.Comision }}</Comision> {% endfor %} </Comisiones> {% endif %}
+        {% if Devengados.Comisiones %} <Comisiones> {% for c in Devengados.Comisiones %} <Comision>{{ "%.2f"|format(c.Comision|float) }}</Comision> {% endfor %} </Comisiones> {% endif %}
         {% if Devengados.PagosTerceros %} <PagosTerceros> {% for p in Devengados.PagosTerceros %} <PagoTercero>{{ p.PagoTercero }}</PagoTercero> {% endfor %} </PagosTerceros> {% endif %}
         {% if Devengados.Anticipos %} <Anticipos> {% for a in Devengados.Anticipos %} <Anticipo>{{ a.Anticipo }}</Anticipo> {% endfor %} </Anticipos> {% endif %}
         {% if Devengados.Dotacion %} <Dotacion> {% for d in Devengados.Dotacion %} <Dotacion>{{ d.Dotacion }}</Dotacion> {% endfor %} </Dotacion> {% endif %}
@@ -151,16 +146,16 @@
     </Devengados>
 
     <Deducciones>
-        <Salud Porcentaje="{{ Deducciones.Salud.Porcentaje }}" Deduccion="{{ Deducciones.Salud.Deduccion }}" />
-        <FondoPension Porcentaje="{{ Deducciones.Pension.Porcentaje }}" Deduccion="{{ Deducciones.Pension.Deduccion }}" /> 
+        <Salud Porcentaje="{{ "%.2f"|format(Deducciones.Salud.Porcentaje|float) }}" Deduccion="{{ "%.2f"|format(Deducciones.Salud.Deduccion|float) }}" />
+        <FondoPension Porcentaje="{{ "%.2f"|format(Deducciones.Pension.Porcentaje|float) }}" Deduccion="{{ "%.2f"|format(Deducciones.Pension.Deduccion|float) }}" /> 
         
         {% if Deducciones.FondoSolidaridad %} {% for fsp in Deducciones.FondoSolidaridad %} <FondoSP Porcentaje="{{ fsp.Porcentaje }}" DeduccionSP="{{ fsp.DeduccionSP }}" DeduccionSub="{{ fsp.DeduccionSub }}" /> {% endfor %} {% endif %}
-        {% if Deducciones.Sindicatos %} <Sindicatos> {% for s in Deducciones.Sindicatos %} <Sindicato Porcentaje="{{ s.Porcentaje }}" Deduccion="{{ s.Deduccion }}" /> {% endfor %} </Sindicatos> {% endif %}
+        {% if Deducciones.Sindicatos %} <Sindicatos> {% for s in Deducciones.Sindicatos %} <Sindicato Porcentaje="{{ "%.2f"|format(s.Porcentaje|float) }}" Deduccion="{{ "%.2f"|format(s.Deduccion|float) }}" /> {% endfor %} </Sindicatos> {% endif %}
         {% if Deducciones.Sanciones %} <Sanciones> {% for s in Deducciones.Sanciones %} <Sancion SancionPublic="{{ s.SancionPublic }}" SancionPriv="{{ s.SancionPriv }}" /> {% endfor %} </Sanciones> {% endif %}
         {% if Deducciones.Libranzas %} <Libranzas> {% for l in Deducciones.Libranzas %} <Libranza Descripcion="{{ l.Descripcion }}" Deduccion="{{ l.Deduccion }}" /> {% endfor %} </Libranzas> {% endif %}
         {% if Deducciones.PagosTerceros %} <PagosTerceros> {% for p in Deducciones.PagosTerceros %} <PagoTercero>{{ p.PagoTercero }}</PagoTercero> {% endfor %} </PagosTerceros> {% endif %}
         {% if Deducciones.Anticipos %} <Anticipos> {% for a in Deducciones.Anticipos %} <Anticipo>{{ a.Anticipo }}</Anticipo> {% endfor %} </Anticipos> {% endif %}
-        {% if Deducciones.OtrasDeducciones %} <OtrasDeducciones> {% for otra in Deducciones.OtrasDeducciones %} <OtraDeduccion>{{ otra.OtraDeduccion }}</OtraDeduccion> {% endfor %} </OtrasDeducciones> {% endif %} 
+        {% if Deducciones.OtrasDeducciones %} <OtrasDeducciones> {% for otra in Deducciones.OtrasDeducciones %} <OtraDeduccion>{{ "%.2f"|format(otra.OtraDeduccion|float) }}</OtraDeduccion> {% endfor %} </OtrasDeducciones> {% endif %} 
         {% if Deducciones.PensionVoluntaria %} <PensionVoluntaria> {% for p in Deducciones.PensionVoluntaria %} <PensionVoluntaria>{{ p.PensionVoluntaria }}</PensionVoluntaria> {% endfor %} </PensionVoluntaria> {% endif %}
         {% if Deducciones.RetencionFuente %} <RetencionFuente> {% for r in Deducciones.RetencionFuente %} <RetencionFuente>{{ r.RetencionFuente }}</RetencionFuente> {% endfor %} </RetencionFuente> {% endif %}
         {% if Deducciones.AFC %} <AFC> {% for a in Deducciones.AFC %} <AFC>{{ a.AFC }}</AFC> {% endfor %} </AFC> {% endif %}
@@ -172,8 +167,8 @@
         {% if Deducciones.Deuda %} <Deuda> {% for d in Deducciones.Deuda %} <Deuda>{{ d.Deuda }}</Deuda> {% endfor %} </Deuda> {% endif %}
     </Deducciones>
 
-    <DevengadosTotal>{{ Totales.DevengadoTotal }}</DevengadosTotal>
-    <DeduccionesTotal>{{ Totales.DeduccionesTotal }}</DeduccionesTotal>
-    <ComprobanteTotal>{{ Totales.TotalAPagar }}</ComprobanteTotal>
+    <DevengadosTotal>{{ "%.2f"|format(Totales.DevengadoTotal|float) }}</DevengadosTotal>
+    <DeduccionesTotal>{{ "%.2f"|format(Totales.DeduccionesTotal|float) }}</DeduccionesTotal>
+    <ComprobanteTotal>{{ "%.2f"|format(Totales.TotalAPagar|float) }}</ComprobanteTotal>
 
 </NominaIndividual>

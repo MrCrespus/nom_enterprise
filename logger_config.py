@@ -37,7 +37,7 @@ def x_setup_logging(name=__name__, company_name=None, file_log=None):
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
-
+    logger.addHandler(console_handler)
     if file_log:
         file_handler = logging.FileHandler(log_filename, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)

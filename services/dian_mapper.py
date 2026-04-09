@@ -81,9 +81,9 @@ class x_DianMapper:
                     hours = float(inpt.get('amount', 0) or wd.get('number_of_hours', 0) or wd.get('number_of_days', 0) or 0)
                     
                     devengados[key].append({
-                        "Cantidad": hours,
-                        "Porcentaje": Config.PORCENTAJES_EXTRA.get(code, default_pct),
-                        value_key: val
+                        "Cantidad": f"{hours:.2f}",
+                        "Porcentaje": f"{Config.PORCENTAJES_EXTRA.get(code, default_pct):.2f}",
+                        value_key: f"{val:.2f}"
                     })
                     subtotal += val
         return subtotal
@@ -231,9 +231,17 @@ class x_DianMapper:
         
         software_id = dian_config.get('software_id', '')
         software_pin = dian_config.get('software_pin', '')
-        # En v19, 'number' no existe en hr.payslip — se usa 'name' que ya fue normalizado en el repo
-        numero_slip = slip.get('number') or slip.get('name', '')
-        software_sc_str = f"{software_id}{software_pin}{numero_slip}"
+
+        # Regla NIE011 / NIE012: Consecutivo numérico y Número sin espacios (Prefijo + Consecutivo)
+        consecutivo = str(slip.get('id', '1'))
+        prefijo = "NOM"
+        numero_full = f"{prefijo}{consecutivo}"
+        
+        # Regla NIE027: Hora con zona horaria de Colombia (-05:00)
+        hora_gen = now.strftime("%H:%M:%S") + "-05:00"
+
+        # Re-calcular SoftwareSC con el nuevo Número limpio
+        software_sc_str = f"{software_id}{software_pin}{numero_full}"
         software_sc_hash = hashlib.sha384(software_sc_str.encode('utf-8')).hexdigest()
         
         return {
@@ -246,10 +254,10 @@ class x_DianMapper:
                 "TiempoLaborado": 30, 
                 "FechaGen": now.strftime("%Y-%m-%d")
             },
-            "NumeroSecuenciaXML": {"Consecutivo": slip.get('number') or slip.get('name', ''), "Numero": slip.get('number') or slip.get('name', ''), "Prefijo": "NOM"},
+            "NumeroSecuenciaXML": {"Consecutivo": consecutivo, "Numero": numero_full, "Prefijo": prefijo},
             "LugarGeneracionXML": {"Pais": "CO", "DepartamentoEstado": "17", "MunicipioCiudad": "17001", "Idioma": "es"},
             "ProveedorXML": {"RazonSocial": company.get('name', ''), "NIT": company.get('matches_nit', company.get('vat', '123456789')), "DV": company.get('matches_dv', "1"), "SoftwareID": software_id, "SoftwareSC": software_sc_hash},
-            "InformacionGeneral": {"Version": "V1.0: Documento Soporte de Pago de Nómina Electrónica", "Ambiente": "2" if dian_config.get('testing_id') else "1", "TipoXML": "102", "CUNE": "", "EncripCUNE": "CUNE-SHA384", "FechaGen": now.strftime("%Y-%m-%d"), "HoraGen": now.strftime("%H:%M:%S"), "PeriodoNomina": "4", "TipoMoneda": "COP"},
+            "InformacionGeneral": {"Version": "V1.0: Documento Soporte de Pago de Nómina Electrónica", "Ambiente": "2" if dian_config.get('testing_id') else "1", "TipoXML": "102", "CUNE": "", "EncripCUNE": "CUNE-SHA384", "FechaGen": now.strftime("%Y-%m-%d"), "HoraGen": hora_gen, "PeriodoNomina": "4", "TipoMoneda": "COP"},
             "Empleador": {"NIT": company.get('matches_nit', company.get('vat', '123456789')), "DigitoVerificacion": company.get('matches_dv', "1"), "RazonSocial": company.get('name'), "Pais": "CO", "DepartamentoEstado": "17", "MunicipioCiudad": "17001", "Direccion": company.get('street', 'Sin Direccion')},
             "Trabajador": {
                 "TipoTrabajador": "01", 

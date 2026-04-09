@@ -348,6 +348,27 @@ class x_PayrollRepository:
 
     def x_get_dian_configuration(self, company_id):
         self.logger.info(f"Obteniendo configuración DIAN para Company ID: {company_id}")
+
+        # 1. Intentar obtener parámetros de sistema (ir.config_parameter) como prioridad
+        system_params = {}
+        try:
+            param_keys = [
+                'dian.software_id', 
+                'dian.software_pin', 
+                'dian.test_set_id', 
+                'dian.operation_mode'
+            ]
+            self.logger.info("Buscando sobrescrituras en Parámetros del Sistema (ir.config_parameter)...")
+            params_data = self.client.x_execute(
+                'ir.config_parameter', 'search_read', 
+                [['key', 'in', param_keys]], 
+                fields=['key', 'value']
+            )
+            system_params = {p['key']: p['value'] for p in params_data}
+        except Exception as e:
+            self.logger.warning(f"No se pudieron consultar los parámetros de sistema: {e}")
+
+        # 2. Consultar el modelo estándar l10n_co_dian.operation_mode
         op_modes = self.client.x_execute(
             'l10n_co_dian.operation_mode', 'search_read',
             [['company_id', '=', company_id]],
@@ -364,6 +385,19 @@ class x_PayrollRepository:
                 'testing_id': mode.get('dian_testing_id'),
                 'operation_mode': mode.get('dian_software_operation_mode')
             }
+
+        # 3. Aplicar prioridad: Parámetros de Sistema > Modelo DIAN
+        if system_params.get('dian.software_id'):
+            dian_config['software_id'] = system_params['dian.software_id']
+        if system_params.get('dian.software_pin'):
+            dian_config['software_pin'] = system_params['dian.software_pin']
+        if system_params.get('dian.test_set_id'):
+            dian_config['testing_id'] = system_params['dian.test_set_id']
+        if system_params.get('dian.operation_mode'):
+            dian_config['operation_mode'] = system_params['dian.operation_mode']
+
+        if system_params:
+            self.logger.info(f"Configuración DIAN cargada con overrides: {list(system_params.keys())}")
 
         today = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
