@@ -60,7 +60,10 @@ def main():
 
         import re, os
         safe_company = re.sub(r'[^\w\s-]', '', company_name).strip().replace(' ', '_')
-        target_dir = os.path.join('output_xmls', safe_company)
+        
+        # Definir directorio de salida (Ruta absoluta basada en este archivo)
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        target_dir = os.path.join(base_path, 'output_xmls', safe_company)
         
         if not os.path.exists(target_dir):
             os.makedirs(target_dir)

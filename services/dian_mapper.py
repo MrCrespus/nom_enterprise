@@ -231,20 +231,22 @@ class x_DianMapper:
         
         software_id = dian_config.get('software_id', '')
         software_pin = dian_config.get('software_pin', '')
-        numero_slip = slip.get('number', '')
+        # En v19, 'number' no existe en hr.payslip — se usa 'name' que ya fue normalizado en el repo
+        numero_slip = slip.get('number') or slip.get('name', '')
         software_sc_str = f"{software_id}{software_pin}{numero_slip}"
         software_sc_hash = hashlib.sha384(software_sc_str.encode('utf-8')).hexdigest()
         
         return {
             "Novedad": {"CUNENov": "false"},
             "Periodo": {
-                "FechaIngreso": contract.get('date_start'), 
+                # En Odoo v19, hr.version usa 'contract_date_start' (antes 'date_start' en hr.contract)
+                "FechaIngreso": contract.get('contract_date_start') or contract.get('date_start'), 
                 "FechaLiquidacionInicio": slip['date_from'], 
                 "FechaLiquidacionFin": slip['date_to'], 
                 "TiempoLaborado": 30, 
                 "FechaGen": now.strftime("%Y-%m-%d")
             },
-            "NumeroSecuenciaXML": {"Consecutivo": slip.get('number', ''), "Numero": slip.get('number', ''), "Prefijo": "NOM"},
+            "NumeroSecuenciaXML": {"Consecutivo": slip.get('number') or slip.get('name', ''), "Numero": slip.get('number') or slip.get('name', ''), "Prefijo": "NOM"},
             "LugarGeneracionXML": {"Pais": "CO", "DepartamentoEstado": "17", "MunicipioCiudad": "17001", "Idioma": "es"},
             "ProveedorXML": {"RazonSocial": company.get('name', ''), "NIT": company.get('matches_nit', company.get('vat', '123456789')), "DV": company.get('matches_dv', "1"), "SoftwareID": software_id, "SoftwareSC": software_sc_hash},
             "InformacionGeneral": {"Version": "V1.0: Documento Soporte de Pago de Nómina Electrónica", "Ambiente": "2" if dian_config.get('testing_id') else "1", "TipoXML": "102", "CUNE": "", "EncripCUNE": "CUNE-SHA384", "FechaGen": now.strftime("%Y-%m-%d"), "HoraGen": now.strftime("%H:%M:%S"), "PeriodoNomina": "4", "TipoMoneda": "COP"},

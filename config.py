@@ -49,10 +49,12 @@ class Config:
     def x_resolve_password(url, db, user):
         """Busca la contraseña en el archivo local companies.json"""
         import json
-        vault_path = 'companies.json'
+        # Asegurar ruta absoluta relativa al archivo config.py
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        vault_path = os.path.join(base_path, 'companies.json')
         
         if not os.path.exists(vault_path):
-            raise FileNotFoundError(f"No se encontró el banco de credenciales en {vault_path}. Por favor créalo basándote en la plantilla.")
+            raise FileNotFoundError(f"No se encontró el banco de credenciales en {vault_path}.")
 
         try:
             with open(vault_path, 'r', encoding='utf-8') as f:
@@ -60,12 +62,15 @@ class Config:
         except Exception as e:
             raise Exception(f"Error al leer el banco de credenciales JSON: {e}")
 
-        # Buscamos la coincidencia exacta
+        # Normalizar URL para comparación (quitar "/" al final)
+        search_url = url.rstrip('/')
+        
         for company in companies:
-            if (company.get('url') == url and 
+            config_url = company.get('url', '').rstrip('/')
+            if (config_url == search_url and 
                 company.get('db') == db and 
                 company.get('user') == user):
                 return company.get('password')
 
-        raise ValueError(f"No se encontró ninguna contraseña para el usuario {user} en la base {db} ({url}) en el banco de credenciales local.")
+        raise ValueError(f"No se encontró contraseña para {user} en {db} ({url}) en el banco local de la VPS.")
 

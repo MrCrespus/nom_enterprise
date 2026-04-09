@@ -9,35 +9,56 @@ class x_PayrollRepository:
 
     def x_get_payslip_raw_data(self, payslip_id):
         self.logger.info(f"Obteniendo datos crudos para Payslip ID: {payslip_id}")
+        # En v19 no existe 'number', el identificador es solo 'name'
         slip = self.client.x_execute(
             'hr.payslip', 'read', [payslip_id],
-            fields=['contract_id', 'worked_days_line_ids', 'input_line_ids', 'number', 'name', 'employee_id', 'date_to', 'salary_attachment_ids']
+            fields=['version_id', 'worked_days_line_ids', 'input_line_ids', 'name', 'employee_id', 'date_to', 'salary_attachment_ids']
         )[0]
 
-        contract = self._x_fetch_contract_data(slip['contract_id'][0])
+        contract = self._x_fetch_contract_data(slip['version_id'][0])
         worked_days = self._x_fetch_worked_days(slip.get('worked_days_line_ids', []))
         manual_inputs = self._x_fetch_manual_inputs(slip.get('input_line_ids', []))
         attachments = self._x_fetch_salary_attachments(slip.get('salary_attachment_ids', []))
 
         return {
-            'payslip_number': slip.get('number') or slip.get('name'),
+            'payslip_number': slip.get('name'),
             'contract': contract,
             'worked_days': worked_days,
             'manual_inputs': manual_inputs,
             'attachments': attachments
         }
 
-    def _x_fetch_contract_data(self, contract_id):
-        try:
-            return self.client.x_execute(
-                'hr.contract', 'read', [contract_id],
-                fields=['wage', 'display_name', 'x_nivel_riesgo_arl', 'x_es_independiente']
-            )[0]
-        except Exception:
-            self.logger.warning(f"No se encontró nivel de riesgo ARL para contrato {contract_id}, usando nivel 1.")
-            contract = self.client.x_execute('hr.contract', 'read', [contract_id], fields=['wage', 'display_name', 'x_es_independiente'])[0]
-            contract['x_nivel_riesgo_arl'] = 1
-            return contract
+    def _x_fetch_contract_data(self, version_id, employee_id=None):
+        """Lee datos del contrato desde hr.version + campos de Studio desde hr.employee.
+        
+        Los campos x_nivel_riesgo_arl y x_es_independiente fueron añadidos por Studio
+        a hr.employee (no a hr.version). Se leen desde el empleado si se provee employee_id.
+        """
+        # 1. Leer solo los campos nativos de hr.version (siempre disponibles)
+        contract = self.client.x_execute(
+            'hr.version', 'read', [version_id],
+            fields=['wage', 'display_name', 'employee_id']
+        )[0]
+
+        # 2. Leer campos de Studio desde hr.employee
+        emp_id = employee_id or (contract.get('employee_id') and contract['employee_id'][0])
+        if emp_id:
+            try:
+                emp_data = self.client.x_execute(
+                    'hr.employee', 'read', [emp_id],
+                    fields=['x_nivel_riesgo_arl', 'x_es_independiente']
+                )[0]
+                contract['x_nivel_riesgo_arl'] = emp_data.get('x_nivel_riesgo_arl', '1')
+                contract['x_es_independiente'] = emp_data.get('x_es_independiente', False)
+            except Exception:
+                self.logger.warning(f"Campos Studio no disponibles en hr.employee {emp_id}, usando valores por defecto.")
+                contract['x_nivel_riesgo_arl'] = '1'
+                contract['x_es_independiente'] = False
+        else:
+            contract['x_nivel_riesgo_arl'] = '1'
+            contract['x_es_independiente'] = False
+
+        return contract
 
     def _x_fetch_worked_days(self, line_ids):
         if not line_ids: return {}
@@ -66,45 +87,51 @@ class x_PayrollRepository:
 
 
     def x_get_slips_for_dian(self, date_start=None, date_end=None):
-        """Busca nóminas en estado 'Hecho' (done) que no hayan sido enviadas exitosamente"""
-        # Buscamos solo nóminas en estado 'done' (Hecho / Confirmado)
-        domain = [['state', '=', 'done']]
+        """Busca nóminas en estado 'Validado' o 'Pagado' (v19) que no hayan sido enviadas exitosamente.
         
-        # Opcional: Filtrar por las que NO tengan estado 'sent' (exitoso)
-        try:
-            # Intentamos incluir el filtro de Studio si existe
-            domain.append(['x_dian_status', '!=', 'sent'])
-        except Exception:
-            self.logger.warning("Campo x_dian_status no disponible para filtrado en búsqueda, se filtrará en memoria.")
+        En Odoo v19: 'validated' (antes 'done') y 'paid' son los estados finales.
+        El campo x_dian_status es de Studio y NO se puede usar en el domain RPC
+        (el servidor lo rechaza con ValueError si no está disponible).
+        El filtro por x_dian_status se aplica en memoria después de la búsqueda.
+        """
+        domain = [['state', 'in', ['validated', 'paid']]]
 
         if date_start and date_end:
             domain.extend([
                 ['date_from', '=', date_start],
                 ['date_to', '=', date_end]
             ])
-        
-        # Obtenemos los campos necesarios para agrupar por contrato
-        all_slips = self.client.x_execute(
-            'hr.payslip', 'search_read', domain,
-            fields=['id', 'contract_id', 'x_dian_status'], order='id desc'
-        )
-        
-        # Filtramos para quedarnos solo con la última nómina (id más alto) por cada contrato
-        seen_contracts = set()
+
+        # Obtenemos los campos necesarios — sin x_dian_status en el domain (falla en servidor)
+        # Intentamos leer x_dian_status para filtrar en memoria
+        try:
+            all_slips = self.client.x_execute(
+                'hr.payslip', 'search_read', domain,
+                fields=['id', 'version_id', 'x_dian_status'], order='id desc'
+            )
+        except Exception:
+            # Si x_dian_status no existe aún en Studio, buscamos sin él
+            self.logger.warning("Campo x_dian_status no disponible, procesando sin filtro DIAN.")
+            all_slips = self.client.x_execute(
+                'hr.payslip', 'search_read', domain,
+                fields=['id', 'version_id'], order='id desc'
+            )
+
+        # Filtramos en memoria: excluir las ya enviadas
+        seen_versions = set()
         unique_ids = []
         for slip in all_slips:
-            # Doble check de seguridad por si el filtro x_dian_status falló en el servidor
             if slip.get('x_dian_status') == 'sent':
                 continue
 
-            contract_id = slip['contract_id'][0] if slip['contract_id'] else False
-            if contract_id and contract_id not in seen_contracts:
+            version_id = slip['version_id'][0] if slip['version_id'] else False
+            if version_id and version_id not in seen_versions:
                 unique_ids.append(slip['id'])
-                seen_contracts.add(contract_id)
-            elif not contract_id:
+                seen_versions.add(version_id)
+            elif not version_id:
                 unique_ids.append(slip['id'])
 
-        self.logger.info(f"Se encontraron {len(unique_ids)} nóminas en estado 'Hecho' listas para procesar.")
+        self.logger.info(f"Se encontraron {len(unique_ids)} nóminas en estado validado/pagado listas para procesar.")
         return unique_ids
 
     def x_get_current_reporting_period(self):
@@ -135,17 +162,35 @@ class x_PayrollRepository:
         return first_day, last_day
 
     def x_get_active_contracts(self, date_start, date_end):
-        self.logger.info(f"Buscando contratos activos entre {date_start} y {date_end}")
+        """En Odoo v19, los contratos activos se consultan desde hr.employee.
+
+        hr.employee expone los campos de contrato de la versión vigente mediante
+        related+inherited desde hr.version:
+          - contract_date_start  → version_id.contract_date_start
+          - contract_date_end    → version_id.contract_date_end
+          - is_in_contract       → version_id.is_in_contract (computed)
+          - version_id           → la versión/contrato vigente del empleado
+          - wage                 → version_id.wage
+
+        Esto replica el comportamiento de _get_contract_versions() en hr_employee.py:
+          - contract_date_start != False  → versión que tiene contrato real
+          - solapamiento con el período [date_start, date_end]
+        """
+        self.logger.info(f"Buscando empleados con contrato activo entre {date_start} y {date_end}")
         domain = [
-            ['state', 'in', ['open', 'close']],
-            ['date_start', '<=', date_end],
-            '|', ['date_end', '=', False], ['date_end', '>=', date_start]
+            ['active', '=', True],
+            ['contract_date_start', '!=', False],          # Tiene contrato real (no solo cambio de perfil)
+            ['contract_date_start', '<=', date_end],        # Contrato inicia antes del fin del período
+            '|',
+            ['contract_date_end', '=', False],              # Contrato indefinido
+            ['contract_date_end', '>=', date_start]         # O vigente durante el período
         ]
         return self.client.x_execute(
-            'hr.contract', 'search_read',
+            'hr.employee', 'search_read',
             domain,
-            fields=['employee_id', 'structure_type_id', 'date_start']
+            fields=['id', 'name', 'version_id', 'contract_date_start', 'contract_date_end', 'wage', 'structure_type_id']
         )
+
 
     def x_slip_exists(self, employee_id, date_from, date_to):
         count = self.client.x_execute(
@@ -158,14 +203,15 @@ class x_PayrollRepository:
         )
         return count > 0
 
-    def x_create_payslip(self, contract_id, employee_id, date_from, date_to):
+    def x_create_payslip(self, version_id, employee_id, date_from, date_to):
+        """En Odoo v19, los payslips se crean con 'version_id' en lugar de 'contract_id'."""
         existing_slips = self.client.x_execute(
             'hr.payslip', 'search',
             [
                 ['employee_id', '=', employee_id],
                 ['date_from', '=', date_from],
                 ['date_to', '=', date_to],
-                ['state', 'in', ['draft', 'verify']]
+                ['state', '=', 'draft']
             ],
             order='id desc',
             limit=1
@@ -183,7 +229,7 @@ class x_PayrollRepository:
         self.logger.info(f"Creando nuevo Payslip: {x_slip_name}")
         vals = {
             'employee_id': employee_id,
-            'contract_id': contract_id,
+            'version_id': version_id,
             'date_from': date_from,
             'date_to': date_to,
             'name': x_slip_name,
@@ -203,10 +249,11 @@ class x_PayrollRepository:
 
     def x_get_full_data_for_xml(self, payslip_id):
         self.logger.info(f"Obteniendo datos completos para XML del Payslip ID: {payslip_id}")
+        # En v19 no existe 'number', el identificador del payslip es solo 'name'
         slip = self.client.x_execute(
             'hr.payslip', 'read', [payslip_id],
-            fields=['number', 'name', 'date_from', 'date_to', 'employee_id',
-                    'contract_id', 'company_id', 'line_ids', 'worked_days_line_ids', 'input_line_ids']
+            fields=['name', 'date_from', 'date_to', 'employee_id',
+                    'version_id', 'company_id', 'line_ids', 'worked_days_line_ids', 'input_line_ids']
         )[0]
 
         company = self.client.x_execute('res.company', 'read', [slip['company_id'][0]],
@@ -249,15 +296,25 @@ class x_PayrollRepository:
 
         company['matches_nit'] = nit
         company['matches_dv'] = dv
+
+        # En Odoo v19, datos del contrato desde hr.version
+        # Los campos de Studio (x_nivel_riesgo_arl, x_es_independiente) están en hr.employee
+        contract = self.client.x_execute(
+            'hr.version', 'read', [slip['version_id'][0]],
+            fields=['wage', 'contract_date_start']
+        )[0]
+        # Enriquecer con campos de Studio desde hr.employee (ya lo tenemos en el slip)
         try:
-            contract = self.client.x_execute(
-                'hr.contract', 'read', [slip['contract_id'][0]],
-                fields=['wage', 'date_start', 'x_nivel_riesgo_arl', 'x_es_independiente'])[0]
+            emp_studio = self.client.x_execute(
+                'hr.employee', 'read', [slip['employee_id'][0]],
+                fields=['x_nivel_riesgo_arl', 'x_es_independiente']
+            )[0]
+            contract['x_nivel_riesgo_arl'] = emp_studio.get('x_nivel_riesgo_arl', '1')
+            contract['x_es_independiente'] = emp_studio.get('x_es_independiente', False)
         except Exception:
-            contract = self.client.x_execute(
-                'hr.contract', 'read', [slip['contract_id'][0]],
-                fields=['wage', 'date_start', 'x_es_independiente'])[0]
-            contract['x_nivel_riesgo_arl'] = 1
+            self.logger.warning("Campos Studio ARL no disponibles, usando valores por defecto.")
+            contract['x_nivel_riesgo_arl'] = '1'
+            contract['x_es_independiente'] = False
 
         lines = self.client.x_execute(
             'hr.payslip.line', 'read', slip['line_ids'],
@@ -272,7 +329,8 @@ class x_PayrollRepository:
                 if ln.get('category_id'):
                     ln['category_code'] = cat_map.get(ln['category_id'][0])
 
-        slip['number'] = slip.get('number') or slip.get('name')
+        # En v19, 'number' no existe — normalizamos usando solo 'name'
+        slip['number'] = slip.get('name')
 
         worked_days = self._x_fetch_worked_days(slip.get('worked_days_line_ids', []))
         manual_inputs = self._x_fetch_manual_inputs(slip.get('input_line_ids', []))
@@ -307,7 +365,7 @@ class x_PayrollRepository:
                 'operation_mode': mode.get('dian_software_operation_mode')
             }
 
-        today = datetime.date.today().strftime('%Y-%m-%d')
+        today = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
         domain_cert = [
             ['company_id', '=', company_id],
@@ -315,6 +373,12 @@ class x_PayrollRepository:
             ['date_end', '>=', today]
         ]
 
+        # En Odoo v19, certificate.certificate tiene estos campos centrales:
+        # - content: el certificado en cualquier formato (DER/PKCS12/PEM)
+        # - pkcs12_password: contraseña para PKCS12
+        # - pem_certificate: CALCULADO automáticamente (solo la parte pública)
+        # - private_key_id: Many2one a certificate.key (no ir.attachment)
+        # - public_key_id: Many2one a certificate.key (no ir.attachment)
         certs = self.client.x_execute(
             'certificate.certificate', 'search_read',
             domain_cert,
@@ -332,19 +396,25 @@ class x_PayrollRepository:
             private_key_content = None
             public_key_content = None
 
+            # En Odoo v19, private_key_id y public_key_id apuntan a certificate.key
+            # El campo relevante en ese modelo es 'pem_key' (en lugar de 'datas' de ir.attachment)
             if cert.get('private_key_id'):
                 pk_id = cert['private_key_id'][0] if isinstance(
                     cert['private_key_id'], (list, tuple)) else cert['private_key_id']
-                att = self.client.x_execute('ir.attachment', 'read', [
-                                          pk_id], fields=['datas'])[0]
-                private_key_content = att.get('datas')
+                try:
+                    key_rec = self.client.x_execute('certificate.key', 'read', [pk_id], fields=['pem_key'])[0]
+                    private_key_content = key_rec.get('pem_key')
+                except Exception as e:
+                    self.logger.warning(f"No se pudo leer la clave privada de certificate.key: {e}")
 
             if cert.get('public_key_id'):
                 pub_id = cert['public_key_id'][0] if isinstance(
                     cert['public_key_id'], (list, tuple)) else cert['public_key_id']
-                att = self.client.x_execute('ir.attachment', 'read', [
-                                          pub_id], fields=['datas'])[0]
-                public_key_content = att.get('datas')
+                try:
+                    key_rec = self.client.x_execute('certificate.key', 'read', [pub_id], fields=['pem_key'])[0]
+                    public_key_content = key_rec.get('pem_key')
+                except Exception as e:
+                    self.logger.warning(f"No se pudo leer la clave pública de certificate.key: {e}")
 
             cert_config = {
                 'name': cert.get('name'),
@@ -352,9 +422,9 @@ class x_PayrollRepository:
                 'start_date': cert.get('date_start'),
                 'end_date': cert.get('date_end'),
                 'password': cert.get('pkcs12_password'),
-                'content': cert.get('content'),  
-                'private_key_pem': private_key_content,  
-                'public_key_pem': public_key_content    
+                'content': cert.get('content'),    # PKCS12/DER/PEM binario original
+                'private_key_pem': private_key_content,  # PEM de la clave privada (desde certificate.key)
+                'public_key_pem': public_key_content     # PEM de la clave pública (desde certificate.key)
             }
 
         return {
@@ -397,14 +467,8 @@ class x_PayrollRepository:
 
     def x_post_message(self, res_model, res_id, body, attachment_ids=None):
         self.logger.info(f"Publicando nota en {res_model} ID {res_id}...")
-        vals = {
-            'body': body,
-            'model': res_model,
-            'res_id': res_id,
-            'attachment_ids': [(6, 0, attachment_ids)] if attachment_ids else []
-        }
         try:
-            # En Odoo 17/18 usamos message_post con subtipo para asegurar renderizado HTML
+            # En Odoo 19 usamos message_post con subtipo para asegurar renderizado HTML
             self.client.x_execute(
                 res_model, 
                 'message_post', 
@@ -421,7 +485,6 @@ class x_PayrollRepository:
     def x_update_dian_fields(self, payslip_id, status, zip_key=None):
         """Actualiza el estado DIAN y el ZipKey en los campos de Studio de Odoo"""
         self.logger.info(f"Actualizando estado DIAN '{status}' para Payslip ID: {payslip_id}")
-        vals = {'x_dian_status': status}
         
         # Guardamos el ZipKey si el campo existe y se proporciona
         if zip_key:

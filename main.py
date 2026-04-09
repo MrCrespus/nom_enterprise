@@ -20,7 +20,7 @@ def action_generate_xml(repo, xml_gen, logger, date_start=None, date_end=None):
     slips_to_process = repo.x_get_slips_for_dian(date_start, date_end)
     
     if not slips_to_process:
-        logger.info("No se encontraron nóminas pendientes de envío (estado 'Hecho' y sin ZipKey).")
+        logger.info("No se encontraron nóminas pendientes de envío (estado 'validated'/'paid' sin DIAN status 'sent').")
         return
 
     for slip_id in slips_to_process:
@@ -90,7 +90,10 @@ def action_generate_xml(repo, xml_gen, logger, date_start=None, date_end=None):
             import re
             company_name = full_slip_data['company']['name']
             safe_company = re.sub(r'[^\w\s-]', '', company_name).strip().replace(' ', '_')
-            target_dir = os.path.join('output_xmls', safe_company)
+            
+            # Definir directorio de salida (Ruta absoluta basada en este archivo)
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            target_dir = os.path.join(base_path, 'output_xmls', safe_company)
 
             xml_gen.x_save_to_file(xml_str, local_filename, output_dir=target_dir)
             logger.info(f"XML guardado localmente en {target_dir} como {local_filename}")
@@ -156,18 +159,21 @@ def action_generate_xml(repo, xml_gen, logger, date_start=None, date_end=None):
 
                 # Publicar Nota en el Chatter con los 3 archivos
                 if attachment_ids:
-                    status_text = status_response.get('message', 'Sin respuesta de la DIAN')
-                    # Limpiamos el mensaje de códigos técnicos para dejarlo más natural
-                    clean_status = status_text.split(' (Code:')[0] if ' (Code:' in status_text else status_text
-                    
+                    # status_response puede ser None si la DIAN falló o no retornó estado
+                    if status_response:
+                        status_text = status_response.get('message', 'Sin respuesta de la DIAN')
+                        clean_status = status_text.split(' (Code:')[0] if ' (Code:' in status_text else status_text
+                    else:
+                        clean_status = 'Error al enviar a la DIAN — XML adjunto para revisión manual'
+
                     body = f"Respuesta DIAN: {clean_status}"
-                    
+
                     repo.x_post_message('hr.payslip', slip_id, body, attachment_ids=attachment_ids)
-                    
+
                     # Actualizar campos de estado en Odoo (Studio)
-                    is_ok = status_response.get('is_success', False)
+                    is_ok = status_response.get('is_success', False) if status_response else False
                     dian_status_key = 'sent' if is_ok else 'rejected'
-                    repo.x_update_dian_fields(slip_id, dian_status_key, zip_key=dian_response.get('zip_key'))
+                    repo.x_update_dian_fields(slip_id, dian_status_key, zip_key=dian_response.get('zip_key') if dian_response else None)
 
             except Exception as e:
                 logger.error(f"Error al subir XMLs o publicar nota en Odoo para Payslip ID: {slip_id}: {e}")
@@ -195,8 +201,8 @@ def main():
                 else:
                     logger.error("Formato de credenciales inválido. Debe ser URL|||DB|||User|||Pass o URL|||DB|||User (usando bóveda).")
                     sys.exit(1)
-            except Exception:
-                logger.error("Error al procesar credenciales.")
+            except Exception as e:
+                logger.error(f"Error al procesar credenciales: {e}")
                 sys.exit(1)
 
         client = x_OdooClient(url=odoo_url, db=odoo_db,

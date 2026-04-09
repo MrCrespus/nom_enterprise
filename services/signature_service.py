@@ -136,21 +136,24 @@ class x_SignatureService:
 
             cert_chain = []
             try:
-                try:
-                    cert = x509.load_pem_x509_certificate(public_key_bytes)
-                    cert_chain = [cert]
-                except ValueError:
-                    pem_str = public_key_bytes.decode('utf-8', errors='ignore')
-                    certs_found = re.findall(
-                        r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pem_str, re.DOTALL)
-                    for c_str in certs_found:
-                        cert_chain.append(
-                            x509.load_pem_x509_certificate(c_str.encode('utf-8')))
+                # Intentamos buscar certificados en los bytes de la clave pública
+                pem_str_pub = public_key_bytes.decode('utf-8', errors='ignore')
+                certs_found = re.findall(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pem_str_pub, re.DOTALL)
+                
+                # Si no hay en la pública, buscamos en la privada (por si es un PEM combo)
+                if not certs_found:
+                    pem_str_priv = private_key_bytes.decode('utf-8', errors='ignore')
+                    certs_found = re.findall(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pem_str_priv, re.DOTALL)
+
+                for c_str in certs_found:
+                    cert_chain.append(x509.load_pem_x509_certificate(c_str.encode('utf-8')))
 
                 if not cert_chain:
+                    self.logger.warning("No se encontraron certificados en los datos PEM (ni en clave pública ni privada).")
                     raise Exception("No se encontraron certificados en los datos PEM.")
 
             except Exception as e:
+                self.logger.error(f"Error extrayendo certificado X509 del PEM: {e}")
                 raise Exception(f"No se pudo extraer el certificado X509 del PEM: {e}")
 
             return self._x_build_signature_structure(xml_content, private_key, cert_chain)

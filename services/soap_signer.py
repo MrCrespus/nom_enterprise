@@ -27,49 +27,114 @@ class x_SoapSigner:
         cert_password = cert_config.get('password')
         private_key_pem = cert_config.get('private_key_pem')
         public_key_pem = cert_config.get('public_key_pem')
-        
+
+        logger = self.signature_service.logger
         cert_chain = []
         private_key = None
 
-        def load_from_pem_content(priv_b64, pub_b64):
-            priv_bytes = base64.b64decode(priv_b64)
-            pub_bytes = base64.b64decode(pub_b64) if pub_b64 else priv_bytes
-            nonlocal private_key, cert_chain
+        def _decode_odoo_binary(value):
+            """Los campos Binary de Odoo se devuelven como string base64.
+            Intenta decodificar y detectar si el resultado es PEM o DER/PKCS12."""
+            if not value:
+                return None, 'empty'
             try:
-                private_key = load_pem_private_key(priv_bytes, password=str(cert_password).encode() if cert_password else None)
+                raw = base64.b64decode(value)
+                if raw.strip().startswith(b'-----'):
+                    return raw, 'pem'
+                return raw, 'der_or_pkcs12'
             except Exception:
-                private_key = load_pem_private_key(priv_bytes, password=None)
+                # Si falla el decode, puede que ya sea bytes PEM directos
+                if isinstance(value, str) and value.strip().startswith('-----'):
+                    return value.encode(), 'pem_raw'
+                return None, 'unknown'
 
-            try:
-                cert = x509.load_pem_x509_certificate(pub_bytes)
-                cert_chain = [cert]
-            except ValueError:
-                pem_str = pub_bytes.decode('utf-8', errors='ignore')
-                certs_found = re.findall(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pem_str, re.DOTALL)
-                for c_str in certs_found:
-                    cert_chain.append(x509.load_pem_x509_certificate(c_str.encode('utf-8')))
-
+        # --- Intento 1: Cargar desde claves PEM separadas (certificate.key) ---
         if private_key_pem:
+            logger.info("SOAP Cert: intentando cargar desde private_key_pem (certificate.key)...")
             try:
-                load_from_pem_content(private_key_pem, public_key_pem)
-            except Exception:
+                priv_raw, priv_type = _decode_odoo_binary(private_key_pem)
+                logger.info(f"SOAP Cert: private_key tipo detectado: {priv_type}, tamaño: {len(priv_raw) if priv_raw else 0}")
+                if priv_raw and priv_type in ('pem', 'pem_raw'):
+                    try:
+                        private_key = load_pem_private_key(priv_raw, password=str(cert_password).encode() if cert_password else None)
+                    except Exception:
+                        private_key = load_pem_private_key(priv_raw, password=None)
+                    logger.info("SOAP Cert: clave privada PEM cargada exitosamente.")
+                else:
+                    logger.warning(f"SOAP Cert: private_key_pem no es PEM válido (tipo: {priv_type}). Se intentará con content.")
+            except Exception as e:
+                logger.warning(f"SOAP Cert: falló carga de private_key_pem: {e}")
                 private_key = None
 
-        if not private_key and cert_content:
-            cert_data_bytes = base64.b64decode(cert_content)
-            if cert_data_bytes.strip().startswith(b'-----'):
-                load_from_pem_content(cert_content, cert_content)
-            else:
-                password_bytes = str(cert_password).encode() if cert_password and str(cert_password).lower() != 'false' else None
+            if private_key and public_key_pem:
                 try:
-                    private_key, main_cert, additional_certs = pkcs12.load_key_and_certificates(
-                        cert_data_bytes, password_bytes
-                    )
-                    cert_chain = [main_cert] + (additional_certs if additional_certs else [])
+                    pub_raw, pub_type = _decode_odoo_binary(public_key_pem)
+                    logger.info(f"SOAP Cert: public_key tipo detectado: {pub_type}, tamaño: {len(pub_raw) if pub_raw else 0}")
+                    if pub_raw:
+                        try:
+                            cert_chain = [x509.load_pem_x509_certificate(pub_raw)]
+                            logger.info("SOAP Cert: certificado público PEM cargado exitosamente.")
+                        except ValueError:
+                            pem_str = pub_raw.decode('utf-8', errors='ignore')
+                            certs_found = re.findall(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pem_str, re.DOTALL)
+                            for c_str in certs_found:
+                                cert_chain.append(x509.load_pem_x509_certificate(c_str.encode('utf-8')))
+                            logger.info(f"SOAP Cert: {len(cert_chain)} certificados encontrados en cadena PEM.")
                 except Exception as e:
-                    raise Exception(f"Failed to deserialize PKCS12 data: {e}")
-            
+                    logger.warning(f"SOAP Cert: falló carga de public_key_pem: {e}")
+
+        # --- Intento 2: Cargar certificado desde content (PKCS12 o PEM completo) ---
+        # Si aún no tenemos certificado, buscamos en content (independientemente de si ya tenemos la clave)
+        if (not cert_chain or not private_key) and cert_content:
+            logger.info("SOAP Cert: intentando cargar (extra) desde content (PKCS12/PEM)...")
+            try:
+                raw, content_type = _decode_odoo_binary(cert_content)
+                logger.info(f"SOAP Cert: content tipo detectado: {content_type}, tamaño: {len(raw) if raw else 0}")
+
+                if raw and content_type in ('pem', 'pem_raw'):
+                    # Si no teníamos clave, la buscamos aquí
+                    if not private_key:
+                        try:
+                            private_key = load_pem_private_key(raw, password=str(cert_password).encode() if cert_password else None)
+                        except Exception:
+                            private_key = load_pem_private_key(raw, password=None)
+                    
+                    # Buscamos certificados en el content PEM
+                    pem_str = raw.decode('utf-8', errors='ignore')
+                    certs_found = re.findall(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pem_str, re.DOTALL)
+                    for c_str in certs_found:
+                        cert_chain.append(x509.load_pem_x509_certificate(c_str.encode('utf-8')))
+                    
+                    if certs_found:
+                        logger.info(f"SOAP Cert: {len(certs_found)} certificados encontrados en content PEM.")
+
+                elif raw and content_type == 'der_or_pkcs12':
+                    password_bytes = str(cert_password).encode() if cert_password and str(cert_password).lower() not in ('false', 'none', '') else None
+                    try:
+                        pkcs12_key, main_cert, additional_certs = pkcs12.load_key_and_certificates(raw, password_bytes)
+                        if not private_key:
+                            private_key = pkcs12_key
+                        if not cert_chain:
+                            cert_chain = [main_cert] + (additional_certs if additional_certs else [])
+                        logger.info(f"SOAP Cert: PKCS12 cargado exitosamente. Certs en cadena: {len(cert_chain)}")
+                    except Exception as e:
+                        if not private_key: # Solo es un error fatal si no tenemos ninguna clave aún
+                            logger.error(f"SOAP Cert: falló deserialización PKCS12: {e}")
+                            raise Exception(f"No se pudo deserializar el certificado PKCS12: {e}")
+                else:
+                    logger.warning(f"SOAP Cert: content en formato desconocido o vacío para extracción de certificado (tipo: {content_type})")
+            except Exception as e:
+                if not private_key or not cert_chain:
+                    logger.error(f"SOAP Cert: error cargando desde content: {e}")
+                    raise
+
+        if not private_key:
+            logger.error("SOAP Cert: no se pudo cargar la clave privada desde ninguna fuente.")
+        if not cert_chain:
+            logger.error("SOAP Cert: no se encontraron certificados X509 en ninguna fuente.")
+
         return private_key, cert_chain[0] if cert_chain else None
+
 
     def x_sign_soap_envelope(self, envelope_xml, cert_config):
         private_key, main_cert = self.x_get_private_key_and_cert(cert_config)
