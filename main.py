@@ -13,11 +13,15 @@ from config import Config
 def parse_args():
     parser = argparse.ArgumentParser(description='Odoo Payroll DIAN Bridge')
     parser.add_argument('--credentials', type=str, help='Odoo credentials in format URL|||DB|||User|||Pass')
+    parser.add_argument('--payslip_id', type=int, help='ID of a specific payslip to process')
     return parser.parse_args()
 
-def action_generate_xml(repo, xml_gen, logger, date_start=None, date_end=None):
-    logger.info(f"Iniciando generación de XMLs desde Odoo para {date_start or 'todos'}...")
-    slips_to_process = repo.x_get_slips_for_dian(date_start, date_end)
+def action_generate_xml(repo, xml_gen, logger, date_start=None, date_end=None, specific_ids=None):
+    if specific_ids:
+        slips_to_process = specific_ids
+    else:
+        logger.info(f"Iniciando generación de XMLs desde Odoo para {date_start or 'todos'}...")
+        slips_to_process = repo.x_get_slips_for_dian(date_start, date_end)
     
     if not slips_to_process:
         logger.info("No se encontraron nóminas pendientes de envío (estado 'validated'/'paid' sin DIAN status 'sent').")
@@ -46,8 +50,11 @@ def action_generate_xml(repo, xml_gen, logger, date_start=None, date_end=None):
             logger.info(f"Calculando CUNE para Payslip ID: {slip_id}")
             dian_json['CUNE'] = x_CuneCalculator.x_calculate(dian_json, pin_software=pin)
 
-            logger.info(f"Generando XML para Payslip ID: {slip_id}")
-            xml_str = xml_gen.x_render(dian_json)
+            # Seleccionar plantilla (Ajuste o Estándar)
+            template_name = 'nomina_ajuste_dian.xml' if dian_json.get('TipoNota') else 'nomina_dian.xml'
+            
+            logger.info(f"Generando XML para Payslip ID: {slip_id} usando plantilla {template_name}")
+            xml_str = xml_gen.x_render(dian_json, template_name=template_name)
             cert_data = dian_settings.get('certificate', {})
 
             try:
@@ -173,7 +180,16 @@ def action_generate_xml(repo, xml_gen, logger, date_start=None, date_end=None):
                     # Actualizar campos de estado en Odoo (Studio)
                     is_ok = status_response.get('is_success', False) if status_response else False
                     dian_status_key = 'sent' if is_ok else 'rejected'
-                    repo.x_update_dian_fields(slip_id, dian_status_key, zip_key=dian_response.get('zip_key') if dian_response else None)
+                    
+                    # El CUNE está en la raíz de dian_json
+                    cune_val = dian_json.get('CUNE')
+                    
+                    repo.x_update_dian_fields(
+                        slip_id, 
+                        dian_status_key, 
+                        zip_key=dian_response.get('zip_key') if dian_response else None,
+                        cune=cune_val
+                    )
 
             except Exception as e:
                 logger.error(f"Error al subir XMLs o publicar nota en Odoo para Payslip ID: {slip_id}: {e}")
@@ -210,11 +226,14 @@ def main():
         repo = x_PayrollRepository(client)
         xml_gen = x_XMLGenerator()
  
-        # Obtener período dinámico desde Odoo
-        date_start, date_end = repo.x_get_current_reporting_period()
- 
-        # Ejecutar generación y comunicación DIAN (Solo Lectura)
-        action_generate_xml(repo, xml_gen, logger, date_start, date_end)
+        # Ejecutar generación: Si hay ID específico lo usamos, si no, el período completo
+        if args.payslip_id:
+            logger.info(f"Ejecutando proceso específico para Payslip ID: {args.payslip_id}")
+            action_generate_xml(repo, xml_gen, logger, specific_ids=[args.payslip_id])
+        else:
+            # Obtener período dinámico desde Odoo
+            date_start, date_end = repo.x_get_current_reporting_period()
+            action_generate_xml(repo, xml_gen, logger, date_start, date_end)
 
         logger.info("Proceso finalizado exitosamente.")
 

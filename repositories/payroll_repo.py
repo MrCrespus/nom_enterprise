@@ -107,7 +107,7 @@ class x_PayrollRepository:
         try:
             all_slips = self.client.x_execute(
                 'hr.payslip', 'search_read', domain,
-                fields=['id', 'version_id', 'x_dian_status'], order='id desc'
+                fields=['id', 'version_id', 'x_dian_status', 'x_dian_cune', 'is_refund_payslip'], order='id desc'
             )
         except Exception:
             # Si x_dian_status no existe aún en Studio, buscamos sin él
@@ -121,7 +121,12 @@ class x_PayrollRepository:
         seen_versions = set()
         unique_ids = []
         for slip in all_slips:
-            if slip.get('x_dian_status') == 'sent':
+            # Si ya tiene CUNE y NO es un reembolso, la saltamos.
+            if slip.get('x_dian_cune') and not slip.get('is_refund_payslip'):
+                continue
+                
+            # Si el estado es 'sent' y no es reembolso, también saltamos
+            if slip.get('x_dian_status') == 'sent' and not slip.get('is_refund_payslip'):
                 continue
 
             version_id = slip['version_id'][0] if slip['version_id'] else False
@@ -252,8 +257,9 @@ class x_PayrollRepository:
         # En v19 no existe 'number', el identificador del payslip es solo 'name'
         slip = self.client.x_execute(
             'hr.payslip', 'read', [payslip_id],
-            fields=['name', 'date_from', 'date_to', 'employee_id',
-                    'version_id', 'company_id', 'line_ids', 'worked_days_line_ids', 'input_line_ids']
+            fields=['name', 'date_from', 'date_to', 'employee_id', 'state', 'is_refund_payslip',
+                    'origin_payslip_id', 'version_id', 'company_id', 'line_ids', 'worked_days_line_ids', 
+                    'input_line_ids', 'x_dian_cune']
         )[0]
 
         company = self.client.x_execute('res.company', 'read', [slip['company_id'][0]],
@@ -335,6 +341,20 @@ class x_PayrollRepository:
         worked_days = self._x_fetch_worked_days(slip.get('worked_days_line_ids', []))
         manual_inputs = self._x_fetch_manual_inputs(slip.get('input_line_ids', []))
 
+        # Recuperar datos del predecesor para Notas de Ajuste
+        predecessor = {}
+        if slip.get('origin_payslip_id'):
+            orig_id = slip['origin_payslip_id'][0]
+            try:
+                predecessor = self.client.x_execute(
+                    'hr.payslip', 'read', [orig_id], 
+                    fields=['id', 'name', 'date_from', 'x_dian_cune']
+                )[0]
+                # Normalizar campo 'number'
+                predecessor['number'] = predecessor.get('name')
+            except Exception as e:
+                self.logger.warning(f"No se pudo obtener datos del predecesor ID {orig_id}: {e}")
+
         return {
             'slip': slip,
             'company': company,
@@ -343,7 +363,8 @@ class x_PayrollRepository:
             'contract': contract,
             'lines': lines,
             'worked_days': worked_days,
-            'manual_inputs': manual_inputs
+            'manual_inputs': manual_inputs,
+            'predecessor': predecessor
         }
 
     def x_get_dian_configuration(self, company_id):
@@ -516,20 +537,19 @@ class x_PayrollRepository:
         except Exception as e:
             self.logger.error(f"Error al publicar nota: {e}")
 
-    def x_update_dian_fields(self, payslip_id, status, zip_key=None):
-        """Actualiza el estado DIAN y el ZipKey en los campos de Studio de Odoo"""
+    def x_update_dian_fields(self, payslip_id, status, zip_key=None, cune=None):
+        """Actualiza el estado DIAN, ZipKey y CUNE en los campos de Studio de Odoo"""
         self.logger.info(f"Actualizando estado DIAN '{status}' para Payslip ID: {payslip_id}")
         
-        # Guardamos el ZipKey si el campo existe y se proporciona
+        vals = {'x_dian_status': status}
         if zip_key:
-            try:
-                # El campo x_dian_zipkey es opcional en Studio
-                self.client.x_execute('hr.payslip', 'write', [payslip_id], {
-                    'x_dian_status': status,
-                    'x_dian_zipkey': zip_key
-                })
-            except Exception:
-                # Si x_dian_zipkey no existe, solo actualizamos el status
-                self.client.x_execute('hr.payslip', 'write', [payslip_id], {'x_dian_status': status})
-        else:
+            vals['x_dian_zipkey'] = zip_key
+        if cune:
+            vals['x_dian_cune'] = cune
+
+        # Intentar escribir todos los campos; si alguno falla (Studio), reintentar solo con el status
+        try:
+            self.client.x_execute('hr.payslip', 'write', [payslip_id], vals)
+        except Exception as e:
+            self.logger.warning(f"Error escribiendo campos extendidos DIAN (posiblemente no existan en Studio): {e}")
             self.client.x_execute('hr.payslip', 'write', [payslip_id], {'x_dian_status': status})

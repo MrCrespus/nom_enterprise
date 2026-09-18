@@ -27,10 +27,66 @@ class x_DianMapper:
             attachments, devengados, deducciones, total_devengado, total_deducciones
         )
 
+        if slip.get('is_refund_payslip') or slip.get('state') == 'cancel':
+            return cls.x_to_dian_adjustment_structure(data, dian_settings, overtime_hours, attachments)
+
         return cls._x_assemble_final_dict(
             data, dian_settings, devengados, deducciones, 
             total_devengado, total_deducciones
         )
+
+    @classmethod
+    def x_to_dian_adjustment_structure(cls, data: dict, dian_settings=None, overtime_hours=None, attachments=None):
+        slip = data['slip']
+        dian_config = dian_settings.get('dian', {})
+        
+        # Determinar TipoNota
+        # 1: Reemplazar (v19: Refund payslip en estado validated/paid)
+        # 2: Eliminar (v19: Payslip en estado cancel)
+        tipo_nota = 1 if slip.get('is_refund_payslip') else 2
+        
+        # Obtener datos del predecesor
+        # Preferimos usar el link origin_payslip_id de Odoo
+        pred_data = {
+            "NumeroPred": "DESCONOCIDO",
+            "CUNEPred": slip.get('x_dian_cune_pred') or "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "FechaGenPred": slip.get('date_from') # Fallback
+        }
+
+        # Si hay una nómina origen vinculada, intentamos extraer sus datos reales
+        if slip.get('origin_payslip_id'):
+            orig_id = slip['origin_payslip_id'][0]
+            # Nota: El repo debería haber traído estos datos si los inyectamos en full_slip_data
+            # Pero para simplificar en este paso, asumimos que 'predecessor' fue inyectado en data
+            if 'predecessor' in data and data['predecessor']:
+                p = data['predecessor']
+                # Construimos el número siguiendo la misma lógica: NOM + ID
+                pred_data["NumeroPred"] = f"NOM{p.get('id')}"
+                pred_data["CUNEPred"] = p.get('x_dian_cune') or pred_data["CUNEPred"]
+                pred_data["FechaGenPred"] = p.get('date_from') or pred_data["FechaGenPred"]
+
+        # Si es Reemplazo, necesitamos todo el contenido de la nómina
+        if tipo_nota == 1:
+            calculations = cls._x_extract_calculations_from_lines(data.get('lines', []))
+            devengados, total_dev = cls._x_map_devengados(calculations, overtime_hours, data.get('worked_days', {}))
+            deducciones, total_ded = cls._x_map_deducciones(calculations, data['contract'])
+            devengados, deducciones, total_dev, total_ded = cls._x_process_attachments(
+                attachments, devengados, deducciones, total_dev, total_ded
+            )
+            
+            res = cls._x_assemble_final_dict(data, dian_settings, devengados, deducciones, total_dev, total_ded)
+            res['TipoNota'] = 1
+            res['Predecesor'] = pred_data
+            return res
+        
+        # Si es Eliminación, estructura mínima
+        else:
+            res = cls._x_assemble_final_dict(data, dian_settings, {}, {}, 0, 0)
+            res['TipoNota'] = 2
+            res['Predecesor'] = pred_data
+            # Limpiar campos no usados en eliminación para el CUNE calculator
+            res['Totales'] = {"DevengadoTotal": 0.0, "DeduccionesTotal": 0.0, "TotalAPagar": 0.0}
+            return res
 
     @classmethod
     def _x_map_devengados(cls, calculations, overtime_hours, worked_days):
