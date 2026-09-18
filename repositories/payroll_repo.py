@@ -139,9 +139,33 @@ class x_PayrollRepository:
         self.logger.info(f"Se encontraron {len(unique_ids)} nóminas en estado validado/pagado listas para procesar.")
         return unique_ids
 
+    def x_get_period_from_slip(self, payslip_id):
+        self.logger.info(f"Extrayendo período a partir del Payslip ID: {payslip_id}")
+        slip = self.client.x_execute(
+            'hr.payslip', 'read', [payslip_id], fields=['date_from', 'date_to']
+        )
+        if slip:
+            return slip[0]['date_from'], slip[0]['date_to']
+        return None, None
+
+
     def x_get_current_reporting_period(self):
         self.logger.info("Buscando el período de nómina configurado en Odoo...")
-        # Intentamos buscar primero en hr.payslip.run (lotes de nómina)
+        
+        # 1. Buscamos el último hr.payslip validado/pagado para deducir el período de forma dinámica
+        try:
+            slip = self.client.x_execute(
+                'hr.payslip', 'search_read',
+                [['state', 'in', ['validated', 'paid']]], 
+                fields=['date_from', 'date_to'], order='write_date desc', limit=1
+            )
+            if slip:
+                self.logger.info(f"Período obtenido dinámicamente de la última nómina modificada/validada: {slip[0]['date_from']} a {slip[0]['date_to']}")
+                return slip[0]['date_from'], slip[0]['date_to']
+        except Exception as e:
+            self.logger.warning(f"Error buscando última nómina validada: {e}")
+
+        # 2. Si no hay nóminas validadas, intentamos buscar en hr.payslip.run (lotes de nómina)
         batch = self.client.x_execute(
             'hr.payslip.run', 'search_read',
             [], fields=['date_start', 'date_end'], order='id desc', limit=1
@@ -149,15 +173,6 @@ class x_PayrollRepository:
         if batch:
             self.logger.info(f"Período obtenido de hr.payslip.run: {batch[0]['date_start']} a {batch[0]['date_end']}")
             return batch[0]['date_start'], batch[0]['date_end']
-
-        # Si no hay lotes, buscamos en hr.payslip directamente
-        slip = self.client.x_execute(
-            'hr.payslip', 'search_read',
-            [], fields=['date_from', 'date_to'], order='id desc', limit=1
-        )
-        if slip:
-            self.logger.info(f"Período obtenido de hr.payslip: {slip[0]['date_from']} a {slip[0]['date_to']}")
-            return slip[0]['date_from'], slip[0]['date_to']
 
         self.logger.warning("No se encontró ningún período configurado en Odoo. Usando mes actual como fallback.")
         today = datetime.date.today()

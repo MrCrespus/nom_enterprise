@@ -14,6 +14,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Odoo Payroll DIAN Bridge')
     parser.add_argument('--credentials', type=str, help='Odoo credentials in format URL|||DB|||User|||Pass')
     parser.add_argument('--payslip_id', type=int, help='ID of a specific payslip to process')
+    parser.add_argument('--payslip_ids', type=str, help='IDs separados por coma de múltiples nóminas (ej. 12,13,14)')
+    parser.add_argument('--period_from_slip', type=int, help='ID de una nómina para extraer de ahí el período y procesar todas las de ese mes')
+    parser.add_argument('--date_start', type=str, help='Fecha de inicio (YYYY-MM-DD) para procesar un período específico')
+    parser.add_argument('--date_end', type=str, help='Fecha de fin (YYYY-MM-DD) para procesar un período específico')
     return parser.parse_args()
 
 def action_generate_xml(repo, xml_gen, logger, date_start=None, date_end=None, specific_ids=None):
@@ -226,10 +230,27 @@ def main():
         repo = x_PayrollRepository(client)
         xml_gen = x_XMLGenerator()
  
-        # Ejecutar generación: Si hay ID específico lo usamos, si no, el período completo
+        # Ejecutar generación
         if args.payslip_id:
             logger.info(f"Ejecutando proceso específico para Payslip ID: {args.payslip_id}")
             action_generate_xml(repo, xml_gen, logger, specific_ids=[args.payslip_id])
+        elif args.payslip_ids:
+            try:
+                ids_list = [int(i.strip()) for i in args.payslip_ids.split(',')]
+                logger.info(f"Ejecutando proceso específico para múltiples Payslip IDs: {ids_list}")
+                action_generate_xml(repo, xml_gen, logger, specific_ids=ids_list)
+            except Exception as e:
+                logger.error(f"Error al parsear payslip_ids: {e}")
+        elif args.period_from_slip:
+            date_start, date_end = repo.x_get_period_from_slip(args.period_from_slip)
+            if date_start and date_end:
+                logger.info(f"Ejecutando proceso para el período {date_start} al {date_end} (extraído de nómina {args.period_from_slip})")
+                action_generate_xml(repo, xml_gen, logger, date_start, date_end)
+            else:
+                logger.error(f"No se pudo extraer el período del payslip {args.period_from_slip}")
+        elif args.date_start and args.date_end:
+            logger.info(f"Ejecutando proceso para el período {args.date_start} al {args.date_end}...")
+            action_generate_xml(repo, xml_gen, logger, args.date_start, args.date_end)
         else:
             # Obtener período dinámico desde Odoo
             date_start, date_end = repo.x_get_current_reporting_period()
